@@ -25,6 +25,9 @@ const mapBookingToCamelCase = (b, guests = []) => ({
   bookingStatus: b.booking_status,
   createdAt: b.created_at || b.check_in_date,
   bookingDate: b.check_in_date,
+  studentEmail: b.users?.email || null,
+  applicantEmail: b.users?.email || null,
+  studentMobile: b.users?.mobile || b.mobile_number || null,
   guests: guests.map(g => ({
     key: g.key_label,
     name: g.name,
@@ -106,7 +109,7 @@ export const bookingService = {
   async getBookingById(id) {
     const { data, error } = await supabase
       .from('bookings')
-      .select('*, guests(*)')
+      .select('*, guests(*), users:user_id(id, name, email, mobile)')
       .eq('id', id)
       .single();
       
@@ -121,7 +124,7 @@ export const bookingService = {
   async getAllBookings() {
     const { data, error } = await supabase
       .from('bookings')
-      .select('*, guests(*)');
+      .select('*, guests(*), users:user_id(id, name, email, mobile)');
       
     if (error) {
       console.error(error);

@@ -15,6 +15,7 @@ export default function BookingHistory() {
   const [selectedBooking, setSelectedBooking] = useState(null);
   const [dbTimestamp, setDbTimestamp] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isCancelling, setIsCancelling] = useState(false);
   const [feedback, setFeedback] = useState(null); // { type: 'success' | 'error', message: '' }
 
   // Lock body scroll when modal is open so position never shifts
@@ -137,6 +138,7 @@ export default function BookingHistory() {
     }
 
     if (window.confirm(confirmMsg)) {
+      setIsCancelling(true);
       try {
         if (isPaid) {
           let invoiceNumber = null;
@@ -158,14 +160,22 @@ export default function BookingHistory() {
           const res = await bookingService.cancelBookingWithRefund(id, booking.totalAmount, "User cancellation", invoiceNumber);
           alert(res?.message || `Booking cancelled and refund of ৳${booking.totalAmount} initiated via SSLCommerz.`);
           setBookings(bookings.map(b => b.id === id ? { ...b, bookingStatus: 'CANCELLED', paymentStatus: 'REFUNDED' } : b));
+          if (selectedBooking && selectedBooking.id === id) {
+            setSelectedBooking(prev => ({ ...prev, bookingStatus: 'CANCELLED', paymentStatus: 'REFUNDED' }));
+          }
         } else {
           await bookingService.updateBookingStatus(id, { bookingStatus: 'CANCELLED' });
           setBookings(bookings.map(b => b.id === id ? { ...b, bookingStatus: 'CANCELLED' } : b));
+          if (selectedBooking && selectedBooking.id === id) {
+            setSelectedBooking(prev => ({ ...prev, bookingStatus: 'CANCELLED' }));
+          }
           alert("Booking cancelled successfully.");
         }
       } catch (err) {
         console.error("Cancel failed:", err);
         alert("Failed to cancel booking. Please try again.");
+      } finally {
+        setIsCancelling(false);
       }
     }
   };
@@ -251,38 +261,15 @@ export default function BookingHistory() {
                   </td>
                   <td className="p-3 text-left">{getStatusBadge(booking.bookingStatus)}</td>
                   <td className="p-3 text-center">
-                    <div className="flex justify-center gap-2">
+                    <div className="flex justify-center">
                       <button 
-                        className="btn btn-secondary" 
-                        style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                        className="btn btn-secondary hover-scale" 
+                        style={{ padding: '0.35rem 0.85rem', fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                         onClick={() => handleOpenDetails(booking)}
-                        title="View details or delete"
+                        title="View booking details and actions"
                       >
                         <Eye size={14} /> Details
                       </button>
-                      {booking.paymentStatus === 'COMPLETED' && (
-                        <PDFDownloadLink
-                          key={`row_${booking.id}_${dbTimestamp ? dbTimestamp.getTime() : 'init'}`}
-                          document={<GuestHouseApplicationPDF booking={booking} issueDateTime={dbTimestamp} />}
-                          fileName={`booking_${booking.id}.pdf`}
-                          className="btn btn-primary"
-                          style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: '4px', textDecoration: 'none' }}
-                          title="Download Application PDF"
-                        >
-                          {({ loading }) => (
-                            <><FileText size={14} /> {loading ? '...' : 'PDF'}</>
-                          )}
-                        </PDFDownloadLink>
-                      )}
-                      {(booking.bookingStatus === 'PENDING' || booking.bookingStatus === 'CONFIRMED') && (
-                        <button 
-                          className="btn btn-danger" 
-                          style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-                          onClick={() => handleCancel(booking.id)}
-                        >
-                          <XCircle size={14} /> Cancel
-                        </button>
-                      )}
                     </div>
                   </td>
                 </tr>
@@ -342,6 +329,18 @@ export default function BookingHistory() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 text-sm">
                 <div><strong className="text-muted block">Booking ID</strong> <span className="font-semibold text-primary">{selectedBooking.id}</span></div>
                 <div><strong className="text-muted block">Status</strong> {getStatusBadge(selectedBooking.bookingStatus)}</div>
+                <div>
+                  <strong className="text-muted block">Approval Status</strong> 
+                  <span className={`badge ${selectedBooking.approvalStatus === 'APPROVED' ? 'badge-success' : selectedBooking.approvalStatus?.includes('REJECTED') ? 'badge-danger' : 'badge-warning'}`}>
+                    {selectedBooking.approvalStatus || 'PENDING'}
+                  </span>
+                </div>
+                <div>
+                  <strong className="text-muted block">Payment Status</strong> 
+                  <span className={`badge ${selectedBooking.paymentStatus === 'PAID' || selectedBooking.paymentStatus === 'COMPLETED' ? 'badge-success' : selectedBooking.paymentStatus === 'REFUNDED' ? 'badge-info' : 'badge-warning'}`}>
+                    {selectedBooking.paymentStatus || 'PENDING'}
+                  </span>
+                </div>
                 <div><strong className="text-muted block">Applicant Name</strong> {selectedBooking.applicantName}</div>
                 <div><strong className="text-muted block">Mobile Number</strong> {selectedBooking.mobileNumber}</div>
                 <div><strong className="text-muted block">Check-in</strong> {selectedBooking.checkInDate} {selectedBooking.checkInTime}</div>
@@ -350,6 +349,12 @@ export default function BookingHistory() {
                 <div><strong className="text-muted block">Total Days</strong> {selectedBooking.totalDays}</div>
                 <div><strong className="text-muted block">Total Amount</strong> ৳{selectedBooking.totalAmount}</div>
                 <div><strong className="text-muted block">Assigned Room</strong> {selectedBooking.assignedRoom ? `Room ${selectedBooking.assignedRoom}` : 'Pending Allocation'}</div>
+                {selectedBooking.rejectionReason && (
+                  <div className="col-span-1 sm:col-span-2 p-2.5 rounded text-sm mt-1" style={{ backgroundColor: 'rgba(239, 68, 68, 0.08)', border: '1px solid var(--color-danger)' }}>
+                    <strong className="text-danger block font-medium">Rejection Reason:</strong>
+                    <span>{selectedBooking.rejectionReason}</span>
+                  </div>
+                )}
               </div>
 
               <div>
@@ -366,57 +371,85 @@ export default function BookingHistory() {
               </div>
             </div>
 
-            {/* Modal Footer with Delete Option and Actions */}
-            <div className={`mt-6 flex flex-col sm:flex-row ${canDeleteBooking(selectedBooking) ? 'justify-between' : 'justify-end'} items-center gap-3 pt-4`} style={{ borderTop: '1px solid var(--color-border)' }}>
-              {canDeleteBooking(selectedBooking) && (
-                <div>
-                  <button 
-                    type="button"
-                    className="btn btn-danger flex items-center gap-1.5 text-sm py-2 px-3.5"
-                    onClick={() => handleDeleteBooking(selectedBooking.id)}
-                    disabled={isDeleting}
-                    title="Permanently remove this booking from database"
-                  >
-                    <Trash2 size={16} /> {isDeleting ? 'Deleting...' : 'Delete Booking'}
-                  </button>
-                </div>
-              )}
+            {/* Modal Footer with Cancel, Delete, Payment, PDF, and Close Actions */}
+            {(() => {
+              const canCancel = (selectedBooking.bookingStatus === 'PENDING' || selectedBooking.bookingStatus === 'CONFIRMED') && 
+                                selectedBooking.bookingStatus !== 'CANCELLED' && 
+                                !selectedBooking.approvalStatus?.includes('REJECTED');
+              const canDelete = canDeleteBooking(selectedBooking);
 
-              <div className="flex flex-wrap items-center gap-2">
-                {selectedBooking.approvalStatus === 'PENDING_PAYMENT' && selectedBooking.paymentStatus === 'PENDING' && selectedBooking.bookingStatus !== 'CANCELLED' && (
-                  <Link 
-                    to={user?.role === 'teacher' ? `/teacher/payment` : `/student/payment`}
-                    className="btn btn-success"
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                  >
-                    <CreditCard size={16} /> Pay Now
-                  </Link>
-                )}
-                
-                {selectedBooking.bookingStatus !== 'CANCELLED' && selectedBooking.approvalStatus !== 'REJECTED' && (
-                  <PDFDownloadLink 
-                    key={`modal_${selectedBooking.id}_${dbTimestamp ? dbTimestamp.getTime() : 'init'}`}
-                    document={<GuestHouseApplicationPDF booking={selectedBooking} issueDateTime={dbTimestamp} />} 
-                    fileName={`booking_${selectedBooking.id}.pdf`}
-                    className="btn btn-primary"
-                    style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                  >
-                    {({ loading }) => 
-                      loading ? 'Generating PDF...' : <><FileText size={16} /> Download Application PDF</>
-                    }
-                  </PDFDownloadLink>
-                )}
-
-                <button 
-                  type="button"
-                  className="btn btn-secondary text-sm py-2 px-4" 
-                  onClick={() => setSelectedBooking(null)}
-                  disabled={isDeleting}
+              return (
+                <div 
+                  className={`mt-6 flex flex-col sm:flex-row ${(canCancel || canDelete) ? 'justify-between' : 'justify-end'} items-stretch sm:items-center gap-3 pt-4`} 
+                  style={{ borderTop: '1px solid var(--color-border)' }}
                 >
-                  Close
-                </button>
-              </div>
-            </div>
+                  {/* Destructive options (Cancel / Delete) */}
+                  {(canCancel || canDelete) && (
+                    <div className="flex flex-wrap items-center gap-2">
+                      {canCancel && (
+                        <button 
+                          type="button"
+                          className="btn btn-danger flex items-center justify-center gap-1.5 text-sm py-2 px-3.5"
+                          onClick={() => handleCancel(selectedBooking.id)}
+                          disabled={isCancelling || isDeleting}
+                          title="Cancel this booking"
+                        >
+                          <XCircle size={16} /> {isCancelling ? 'Cancelling...' : 'Cancel Booking'}
+                        </button>
+                      )}
+
+                      {canDelete && (
+                        <button 
+                          type="button"
+                          className="btn btn-danger flex items-center justify-center gap-1.5 text-sm py-2 px-3.5"
+                          onClick={() => handleDeleteBooking(selectedBooking.id)}
+                          disabled={isDeleting || isCancelling}
+                          title="Permanently remove this booking from database"
+                        >
+                          <Trash2 size={16} /> {isDeleting ? 'Deleting...' : 'Delete Record'}
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Primary & Navigation actions (Pay Now / Download PDF / Close) */}
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    {selectedBooking.approvalStatus === 'PENDING_PAYMENT' && selectedBooking.paymentStatus === 'PENDING' && selectedBooking.bookingStatus !== 'CANCELLED' && (
+                      <Link 
+                        to={user?.role === 'teacher' ? `/teacher/payment` : `/student/payment`}
+                        className="btn btn-success flex items-center justify-center gap-1.5 text-sm py-2 px-3.5"
+                        style={{ textDecoration: 'none' }}
+                      >
+                        <CreditCard size={16} /> Pay Now
+                      </Link>
+                    )}
+                    
+                    {selectedBooking.bookingStatus !== 'CANCELLED' && !selectedBooking.approvalStatus?.includes('REJECTED') && (
+                      <PDFDownloadLink 
+                        key={`modal_${selectedBooking.id}_${dbTimestamp ? dbTimestamp.getTime() : 'init'}`}
+                        document={<GuestHouseApplicationPDF booking={selectedBooking} issueDateTime={dbTimestamp} />} 
+                        fileName={`booking_${selectedBooking.id}.pdf`}
+                        className="btn btn-primary flex items-center justify-center gap-1.5 text-sm py-2 px-3.5"
+                        style={{ textDecoration: 'none' }}
+                      >
+                        {({ loading }) => 
+                          loading ? 'Generating PDF...' : <><FileText size={16} /> Download Application PDF</>
+                        }
+                      </PDFDownloadLink>
+                    )}
+
+                    <button 
+                      type="button"
+                      className="btn btn-secondary text-sm py-2 px-4" 
+                      onClick={() => setSelectedBooking(null)}
+                      disabled={isDeleting || isCancelling}
+                    >
+                      Close
+                    </button>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         </div>,
         document.body

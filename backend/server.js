@@ -27,14 +27,132 @@ const is_live = false; // true for live, false for sandbox
 const BACKEND_URL = (process.env.BACKEND_URL || process.env.RENDER_EXTERNAL_URL || 'http://localhost:5000').replace(/\/+$/, '');
 const FRONTEND_URL = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/+$/, '');
 
-// Nodemailer Transporter Setup
+// ============================================================================
+// Multi-Provider Email Delivery System
+// Supports:
+// 1. Brevo REST API (HTTPS Port 443 - free 300 emails/day, never blocked by Render Free Tier)
+// 2. Resend REST API (HTTPS Port 443 - free tier, never blocked by Render Free Tier)
+// 3. Nodemailer SMTP (for local dev, custom SMTP, or paid cloud instances with 4s timeout)
+// ============================================================================
+
+const cleanEmailUser = (process.env.EMAIL_USER || '').replace(/['"]+/g, '').trim();
+const cleanEmailPass = (process.env.EMAIL_PASS || '').replace(/['"\s]+/g, '').trim();
+
 const transporter = nodemailer.createTransport({
-  service: 'gmail', // You can change this or use SMTP host/port for custom domains
+  host: process.env.SMTP_HOST || 'smtp.gmail.com',
+  port: parseInt(process.env.SMTP_PORT || '587', 10),
+  secure: process.env.SMTP_SECURE === 'true', // true for 465, false for 587
   auth: {
-    user: process.env.EMAIL_USER, // e.g., your-email@gmail.com
-    pass: process.env.EMAIL_PASS  // e.g., your 16-character App Password
-  }
+    user: cleanEmailUser,
+    pass: cleanEmailPass
+  },
+  family: 4, // Force IPv4 (prevents hanging on unreachable IPv6 routes on cloud hosts)
+  connectionTimeout: 4000, // 4s timeout (never freeze UI for 120s!)
+  greetingTimeout: 4000,
+  socketTimeout: 5000
 });
+
+async function sendUnifiedEmail({ to, subject, text, html }) {
+  if (!to || !to.trim()) {
+    throw new Error('Recipient email address is required');
+  }
+
+  const recipient = to.trim();
+
+  // Strategy 1: Brevo REST API (HTTPS port 443 - zero block on Render Free Tier)
+  const brevoKey = (process.env.BREVO_API_KEY || '').trim();
+  if (brevoKey) {
+    try {
+      const senderEmail = (process.env.BREVO_SENDER_EMAIL || cleanEmailUser || 'workmail.naim@gmail.com').replace(/['"]+/g, '').trim();
+      const brevoRes = await fetch('https://api.brevo.com/v3/smtp/email', {
+        method: 'POST',
+        headers: {
+          'accept': 'application/json',
+          'api-key': brevoKey,
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          sender: { name: 'RUET Guest House', email: senderEmail },
+          to: [{ email: recipient }],
+          subject,
+          htmlContent: html,
+          textContent: text
+        }),
+        signal: AbortSignal.timeout(6000)
+      });
+      if (brevoRes.ok) {
+        console.log(`[Email Delivered via Brevo API] to: ${recipient}`);
+        return { success: true, provider: 'brevo' };
+      }
+      const errBody = await brevoRes.json().catch(() => ({}));
+      console.error('[Brevo API Error]:', errBody);
+    } catch (err) {
+      console.error('[Brevo Fetch Error]:', err.message);
+    }
+  }
+
+  // Strategy 2: Resend REST API (HTTPS port 443 - zero block on Render Free Tier)
+  const resendKey = (process.env.RESEND_API_KEY || '').trim();
+  if (resendKey) {
+    try {
+      const resendRes = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${resendKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          from: process.env.RESEND_FROM || 'RUET Guest House <onboarding@resend.dev>',
+          to: [recipient],
+          subject,
+          html,
+          text
+        }),
+        signal: AbortSignal.timeout(6000)
+      });
+      if (resendRes.ok) {
+        console.log(`[Email Delivered via Resend API] to: ${recipient}`);
+        return { success: true, provider: 'resend' };
+      }
+      const errBody = await resendRes.json().catch(() => ({}));
+      console.error('[Resend API Error]:', errBody);
+    } catch (err) {
+      console.error('[Resend Fetch Error]:', err.message);
+    }
+  }
+
+  // Strategy 3: Nodemailer SMTP
+  if (!cleanEmailUser || !cleanEmailPass) {
+    console.warn(`[Email Warning] No email service configured. Cannot send email to ${recipient}.`);
+    throw new Error('Email credentials not configured on server.');
+  }
+
+  const mailOptions = {
+    from: `"RUET Guest House" <${cleanEmailUser}>`,
+    to: recipient,
+    subject,
+    text,
+    html
+  };
+
+  try {
+    const info = await transporter.sendMail(mailOptions);
+    console.log(`[Email Delivered via SMTP] to: ${recipient} (Message ID: ${info.messageId})`);
+    return { success: true, provider: 'smtp', messageId: info.messageId };
+  } catch (err) {
+    console.error(`[SMTP Error sending to ${recipient}]:`, err.message);
+    if (err.code === 'ETIMEDOUT' || err.code === 'ESOCKETTIMEDOUT' || (err.message && err.message.includes('timeout'))) {
+      console.warn('================================================================================');
+      console.warn('[NOTICE: SMTP OUTBOUND PORTS BLOCKED]');
+      console.warn('Render Free Tier blocks outgoing SMTP ports (25, 465, 587).');
+      console.warn('To enable instant email sending on Render Free Tier:');
+      console.warn('1. Sign up for a free account at https://brevo.com (or https://resend.com)');
+      console.warn('2. Add BREVO_API_KEY (or RESEND_API_KEY) in Render Dashboard -> Environment.');
+      console.warn('================================================================================');
+    }
+    throw err;
+  }
+}
 
 // Lightweight health check & ping endpoints for keep-alive services
 app.get('/ping', (req, res) => res.send('pong'));
@@ -131,7 +249,12 @@ async function sendOtpEmail(email) {
     `
   };
 
-  await transporter.sendMail(mailOptions);
+  await sendUnifiedEmail({
+    to: normalizedEmail,
+    subject: `RUET Guest House - Your Password Reset OTP: ${otp}`,
+    text: `Hello ${user.name || 'User'},\n\nYour One-Time Password (OTP) to reset your RUET Guest House account password is: ${otp}\n\nThis OTP is valid for 10 minutes.\n\nIf you did not request this, please ignore this email.`,
+    html: mailOptions.html
+  });
   console.log(`[OTP] Sent password reset OTP to ${normalizedEmail}`);
   return { otp, user };
 }
@@ -264,44 +387,168 @@ app.post('/api/email/teacher-approval', async (req, res) => {
     `).join('');
   }
 
-  const mailOptions = {
-    from: `"RUET Guest House" <${process.env.EMAIL_USER}>`,
-    to: teacherEmail,
-    subject: 'New Guest House Approval Request',
-    text: `Hello ${teacherName},\n\nYou have a new Guest House booking approval request from ${applicantName} (${applicantMobile}).\nDates: ${checkInDate} to ${checkOutDate}\nPlease log in to the RUET Guest House portal to review and approve this request.`,
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e5e7eb; border-radius: 8px;">
-        <h2 style="color: #1f2937;">New Approval Request</h2>
-        <p style="color: #4b5563;">Hello <strong>${teacherName || 'Teacher'}</strong>,</p>
-        <p style="color: #4b5563;">You have received a new Guest House booking approval request.</p>
+  const subject = 'New Guest House Approval Request';
+  const text = `Hello ${teacherName || 'Teacher'},\n\nYou have a new Guest House booking approval request from ${applicantName} (${applicantMobile}).\nDates: ${checkInDate} to ${checkOutDate}\nPlease log in to the RUET Guest House portal to review and approve this request.`;
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e5e7eb; border-radius: 8px; background-color: #ffffff;">
+      <h2 style="color: #1f2937;">New Approval Request</h2>
+      <p style="color: #4b5563;">Hello <strong>${teacherName || 'Teacher'}</strong>,</p>
+      <p style="color: #4b5563;">You have received a new Guest House booking approval request.</p>
+      
+      <div style="background-color: #f3f4f6; padding: 15px; border-radius: 5px; margin: 20px 0;">
+        <h3 style="margin-top: 0; color: #374151;">Applicant Details:</h3>
+        <p style="margin: 5px 0;"><strong>Name:</strong> ${applicantName}</p>
+        <p style="margin: 5px 0;"><strong>Mobile:</strong> ${applicantMobile}</p>
+        <p style="margin: 5px 0;"><strong>Dates:</strong> ${checkInDate} to ${checkOutDate}</p>
         
-        <div style="background-color: #f3f4f6; padding: 15px; border-radius: 5px; margin: 20px 0;">
-          <h3 style="margin-top: 0; color: #374151;">Applicant Details:</h3>
-          <p style="margin: 5px 0;"><strong>Name:</strong> ${applicantName}</p>
-          <p style="margin: 5px 0;"><strong>Mobile:</strong> ${applicantMobile}</p>
-          <p style="margin: 5px 0;"><strong>Dates:</strong> ${checkInDate} to ${checkOutDate}</p>
-          
-          <h3 style="margin-top: 15px; color: #374151;">Guest Information:</h3>
-          <ul style="padding-left: 20px; color: #4b5563;">
-            ${guestHtml}
-          </ul>
-        </div>
-        
-        <p style="color: #4b5563;">Please log in to the RUET Guest House portal to review and approve/reject this request.</p>
-        <div style="margin: 30px 0;">
-          <a href="${FRONTEND_URL}/teacher/login" style="display: inline-block; padding: 12px 24px; background-color: #10b981; color: white; text-decoration: none; border-radius: 6px; font-weight: bold;">Login to Portal</a>
-        </div>
+        <h3 style="margin-top: 15px; color: #374151;">Guest Information:</h3>
+        <ul style="padding-left: 20px; color: #4b5563;">
+          ${guestHtml || '<li>No additional guests listed</li>'}
+        </ul>
       </div>
-    `
-  };
+      
+      <p style="color: #4b5563;">Please log in to the RUET Guest House portal to review and approve/reject this request.</p>
+      <div style="margin: 30px 0;">
+        <a href="${FRONTEND_URL}/teacher/login" style="display: inline-block; padding: 12px 24px; background-color: #10b981; color: white; text-decoration: none; border-radius: 6px; font-weight: bold;">Login to Portal</a>
+      </div>
+    </div>
+  `;
 
   try {
-    await transporter.sendMail(mailOptions);
-    console.log(`Teacher approval email sent successfully to: ${teacherEmail}`);
-    res.json({ message: 'Approval request email sent to the teacher.' });
+    await sendUnifiedEmail({
+      to: teacherEmail,
+      subject,
+      text,
+      html
+    });
+    console.log(`[teacher-approval] Email dispatched successfully to: ${teacherEmail}`);
+    res.json({ success: true, message: 'Approval request email sent to the teacher.' });
   } catch (error) {
-    console.error("Nodemailer error:", error);
+    console.error("[teacher-approval error]:", error.message);
     res.status(500).json({ error: 'Failed to send email to teacher.' });
+  }
+});
+
+// Student Payment Notification API Endpoint (sent when teacher approves application)
+app.post('/api/email/student-payment-notice', async (req, res) => {
+  let { 
+    bookingId, 
+    studentEmail, 
+    studentName, 
+    teacherName, 
+    assignedRoom, 
+    requestedRoomType, 
+    checkInDate, 
+    checkOutDate, 
+    totalAmount 
+  } = req.body;
+
+  if (!bookingId) {
+    return res.status(400).json({ error: 'bookingId is required' });
+  }
+
+  // If student email or details are missing, look up booking and user from Supabase
+  if (!studentEmail || !studentName) {
+    try {
+      const { data: booking, error: bError } = await supabase
+        .from('bookings')
+        .select('*, users:user_id(id, name, email)')
+        .eq('id', bookingId)
+        .maybeSingle();
+
+      if (!bError && booking) {
+        studentEmail = studentEmail || booking.users?.email;
+        studentName = studentName || booking.applicant_name || booking.users?.name;
+        assignedRoom = assignedRoom || booking.assigned_room;
+        requestedRoomType = requestedRoomType || booking.requested_room_type;
+        checkInDate = checkInDate || booking.check_in_date;
+        checkOutDate = checkOutDate || booking.check_out_date;
+        totalAmount = totalAmount || booking.total_amount;
+      }
+    } catch (dbErr) {
+      console.warn('[student-payment-notice] DB lookup fallback error:', dbErr);
+    }
+  }
+
+  if (!studentEmail) {
+    return res.status(400).json({ error: 'Student email could not be resolved for this booking' });
+  }
+
+  const roomLabel = assignedRoom ? `Room ${assignedRoom}` : (requestedRoomType || 'Room').replace(/_/g, ' ');
+  const deadlineNote = requestedRoomType === 'TYPE_3' ? '2 hours' : '5 minutes';
+  const paymentUrl = `${FRONTEND_URL}/student/payment`;
+
+  const subject = `Application Approved - Payment Required for Booking #${bookingId}`;
+  const text = `Hello ${studentName || 'Student'},\n\nGreat news! Your RUET Guest House booking application (${bookingId}) has been approved by ${teacherName || 'your department teacher'}.\n\nBooking Details:\n- Room: ${roomLabel}\n- Dates: ${checkInDate} to ${checkOutDate}\n- Total Payable: BDT ${totalAmount}\n- Payment Deadline: Within ${deadlineNote}\n\nPlease proceed to payment immediately to confirm your reservation:\n${paymentUrl}\n\nThank you,\nRUET Guest House Management`;
+
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e5e7eb; border-radius: 10px; background-color: #ffffff;">
+      <div style="text-align: center; margin-bottom: 20px;">
+        <h2 style="color: #1e3a8a; margin: 0; font-size: 22px;">RUET Guest House</h2>
+        <p style="color: #6b7280; font-size: 13px; margin-top: 4px;">Rajshahi University of Engineering & Technology</p>
+      </div>
+      <div style="background-color: #ecfdf5; border-left: 4px solid #10b981; padding: 14px 16px; border-radius: 6px; margin-bottom: 20px;">
+        <h3 style="margin: 0; color: #065f46; font-size: 16px;">Application Approved by Department Teacher</h3>
+        <p style="margin: 4px 0 0; color: #047857; font-size: 13px;">Your application has been reviewed and forwarded for payment.</p>
+      </div>
+      <p style="color: #374151; font-size: 14px; line-height: 1.5;">Dear <strong>${studentName || 'Student'}</strong>,</p>
+      <p style="color: #4b5563; font-size: 14px; line-height: 1.5;">
+        Your Guest House booking application <strong>#${bookingId}</strong> has been approved by <strong>${teacherName || 'your teacher'}</strong>. 
+        Please complete the online payment to confirm your booking.
+      </p>
+
+      <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 18px; margin: 20px 0;">
+        <h4 style="margin: 0 0 12px; color: #1e293b; font-size: 15px; border-bottom: 1px solid #e2e8f0; padding-bottom: 8px;">Reservation Summary</h4>
+        <table style="width: 100%; font-size: 13px; color: #475569; border-collapse: collapse;">
+          <tr>
+            <td style="padding: 6px 0; color: #64748b;">Booking ID:</td>
+            <td style="padding: 6px 0; font-weight: bold; color: #1e293b; text-align: right;">${bookingId}</td>
+          </tr>
+          <tr>
+            <td style="padding: 6px 0; color: #64748b;">Allocation:</td>
+            <td style="padding: 6px 0; font-weight: bold; color: #1e293b; text-align: right;">${roomLabel}</td>
+          </tr>
+          <tr>
+            <td style="padding: 6px 0; color: #64748b;">Duration:</td>
+            <td style="padding: 6px 0; font-weight: bold; color: #1e293b; text-align: right;">${checkInDate} to ${checkOutDate}</td>
+          </tr>
+          <tr>
+            <td style="padding: 6px 0; color: #64748b;">Total Amount:</td>
+            <td style="padding: 6px 0; font-weight: bold; color: #059669; font-size: 16px; text-align: right;">৳${totalAmount}</td>
+          </tr>
+          <tr>
+            <td style="padding: 6px 0; color: #dc2626; font-weight: bold;">Payment Deadline:</td>
+            <td style="padding: 6px 0; font-weight: bold; color: #dc2626; text-align: right;">Within ${deadlineNote}</td>
+          </tr>
+        </table>
+      </div>
+
+      <div style="text-align: center; margin: 30px 0;">
+        <a href="${paymentUrl}" style="display: inline-block; padding: 14px 32px; background-color: #2563eb; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 15px; box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.3);">
+          Proceed to Secure Payment
+        </a>
+      </div>
+
+      <p style="color: #64748b; font-size: 12px; line-height: 1.5; margin-bottom: 0;">
+        <strong>Important:</strong> If payment is not completed within the deadline, the reservation request will automatically expire and the room will become available to other applicants.
+      </p>
+      <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 20px 0;" />
+      <p style="color: #94a3b8; font-size: 11px; margin: 0; text-align: center;">RUET Guest House • Rajshahi University of Engineering & Technology</p>
+    </div>
+  `;
+
+  try {
+    await sendUnifiedEmail({
+      to: studentEmail,
+      subject,
+      text,
+      html
+    });
+    console.log(`[student-payment-notice] Payment notification email sent to student: ${studentEmail} for booking ${bookingId}`);
+    res.json({ success: true, message: `Payment notification sent to student ${studentEmail}` });
+  } catch (err) {
+    console.error('[student-payment-notice error]:', err.message);
+    res.status(500).json({ error: 'Failed to send payment notification email to student' });
   }
 });
 

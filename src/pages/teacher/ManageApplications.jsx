@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { bookingService } from '../../services/bookingService';
+import { API_BASE_URL } from '../../config/api';
 import { Eye, Check, X, Search, Filter, XCircle } from 'lucide-react';
 
 export default function TeacherManageApplications() {
@@ -48,12 +49,37 @@ export default function TeacherManageApplications() {
           approvalStatus: 'PENDING_PAYMENT' 
         });
         
+        // Find approved booking to extract student details
+        const targetApp = applications.find(app => app.id === id);
+
         // Local state update
         setApplications(apps => apps.map(app => 
           app.id === id ? { ...app, approvalStatus: 'PENDING_PAYMENT' } : app
         ));
         if (selectedApp && selectedApp.id === id) {
           setSelectedApp({ ...selectedApp, approvalStatus: 'PENDING_PAYMENT' });
+        }
+
+        // Trigger payment notification email to student (non-blocking with 5s timeout)
+        try {
+          fetch(`${API_BASE_URL}/api/email/student-payment-notice`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              bookingId: id,
+              studentEmail: targetApp?.studentEmail || targetApp?.applicantEmail,
+              studentName: targetApp?.applicantName,
+              teacherName: user?.name,
+              assignedRoom: targetApp?.assignedRoom,
+              requestedRoomType: targetApp?.requestedRoomType,
+              checkInDate: targetApp?.checkInDate,
+              checkOutDate: targetApp?.checkOutDate,
+              totalAmount: targetApp?.totalAmount
+            }),
+            signal: AbortSignal.timeout(5000)
+          }).catch(err => console.warn("Failed to dispatch student payment notice:", err));
+        } catch (e) {
+          console.warn("Payment notice trigger failed:", e);
         }
       } catch (err) {
         console.error("Action failed", err);

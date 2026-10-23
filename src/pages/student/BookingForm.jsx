@@ -246,28 +246,31 @@ export default function BookingForm() {
         navigate('/teacher/payment');
       } else {
         const selectedTeacher = teachers.find(t => t.id === selectedTeacherId);
-        if (selectedTeacher) {
-          try {
-            await fetch(`${API_BASE_URL}/api/email/teacher-approval`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                teacherEmail: selectedTeacher.email,
-                teacherName: selectedTeacher.name,
-                applicantName: applicantInfo.applicantName,
-                applicantMobile: applicantInfo.mobileNumber,
-                guestDetails: guests,
-                checkInDate: dates.checkInDate,
-                checkOutDate: dates.checkOutDate
-              })
-            });
-          } catch (e) {
-            console.error("Failed to send teacher notification email:", e);
-          }
+        
+        // Dispatch teacher approval request email (non-blocking with 4s timeout: never freezes UI)
+        if (selectedTeacher?.email) {
+          fetch(`${API_BASE_URL}/api/email/teacher-approval`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              teacherEmail: selectedTeacher.email,
+              teacherName: selectedTeacher.name,
+              applicantName: applicantInfo.applicantName,
+              applicantMobile: applicantInfo.mobileNumber,
+              applicantEmail: user.email,
+              guestDetails: guests,
+              checkInDate: dates.checkInDate,
+              checkOutDate: dates.checkOutDate,
+              bookingId: newBooking?.id
+            }),
+            signal: AbortSignal.timeout(4000)
+          }).catch(e => {
+            console.warn("Teacher approval notification dispatch error:", e);
+          });
         }
         
         const teacherEmail = selectedTeacher?.email || 'the selected teacher';
-        alert(`Application submitted successfully! It is now pending approval.\n\nAn email notification has been automatically sent to ${teacherEmail} for their review.`);
+        alert(`Application submitted successfully! It is now pending approval.\n\nNotification forwarded to ${teacherEmail} for their review.`);
         navigate('/student/history');
       }
 
