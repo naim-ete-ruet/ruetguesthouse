@@ -36,6 +36,19 @@ const transporter = nodemailer.createTransport({
   }
 });
 
+// Lightweight health check & ping endpoints for keep-alive services
+app.get('/ping', (req, res) => res.send('pong'));
+app.get('/api/health', (req, res) => res.json({ status: 'healthy', uptime: Math.floor(process.uptime()) }));
+
+// Keep-alive self-ping: Prevents free tier from going to sleep while active
+if (process.env.RENDER || process.env.NODE_ENV === 'production') {
+  setInterval(() => {
+    if (BACKEND_URL && BACKEND_URL.startsWith('http')) {
+      fetch(`${BACKEND_URL}/ping`).catch(() => {});
+    }
+  }, 10 * 60 * 1000);
+}
+
 // Endpoint to query current Supabase database / server timestamp
 app.get('/api/database-time', async (req, res) => {
   try {
