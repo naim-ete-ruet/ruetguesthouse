@@ -56,14 +56,14 @@ export default function ManageComplaints() {
     <div className="container">
       <h1 className="text-2xl font-bold mb-6">Manage Complaints</h1>
 
-      <div className="card mb-6 flex justify-between items-center">
-        <div className="flex items-center gap-2 w-full max-w-md">
-          <Search className="text-muted" size={20} />
-          <input type="text" placeholder="Search by ID or Subject..." className="form-input" />
+      <div className="card mb-6 flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-4">
+        <div className="flex items-center gap-2 w-full sm:max-w-md">
+          <Search className="text-muted flex-shrink-0" size={20} />
+          <input type="text" placeholder="Search by ID or Subject..." className="form-input w-full" />
         </div>
-        <div className="flex items-center gap-2">
-          <Filter className="text-muted" size={20} />
-          <select className="form-select" value={filter} onChange={e => setFilter(e.target.value)}>
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          <Filter className="text-muted flex-shrink-0" size={20} />
+          <select className="form-select w-full sm:w-auto" value={filter} onChange={e => setFilter(e.target.value)}>
             <option value="ALL">All Complaints</option>
             <option value="OPEN">Open</option>
             <option value="IN_PROGRESS">In Progress</option>
@@ -125,7 +125,7 @@ export default function ManageComplaints() {
         <div style={{
           position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
           backgroundColor: 'rgba(0, 0, 0, 0.5)', zIndex: 100,
-          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px'
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '12px'
         }}>
           <div className="card animate-fade-in" style={{ width: '100%', maxWidth: '600px', maxHeight: '90vh', overflowY: 'auto' }}>
             <div className="flex justify-between items-center mb-4 pb-2" style={{ borderBottom: '1px solid var(--color-border)' }}>
@@ -141,13 +141,13 @@ export default function ManageComplaints() {
             </div>
             
             <div className="mb-4">
-              <div className="flex justify-between mb-2">
+              <div className="flex flex-wrap justify-between items-center gap-2 mb-2">
                 <span className="font-bold text-lg">{selectedComplaint.subject}</span>
                 <span className={`badge ${selectedComplaint.status === 'RESOLVED' ? 'badge-success' : selectedComplaint.status === 'IN_PROGRESS' ? 'badge-warning' : 'badge-danger'}`}>
                   {selectedComplaint.status.replace(/_/g, ' ')}
                 </span>
               </div>
-              <div className="text-sm text-muted mb-3 flex gap-4 border-bottom pb-3">
+              <div className="text-sm text-muted mb-3 flex flex-wrap gap-x-4 gap-y-1 border-bottom pb-3">
                 <span>By: {selectedComplaint.userName} ({selectedComplaint.userRole})</span>
                 <span>Room: {selectedComplaint.roomNumber}</span>
                 <span>Date: {new Date(selectedComplaint.createdAt).toLocaleString()}</span>
@@ -179,7 +179,7 @@ export default function ManageComplaints() {
                     required
                   ></textarea>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-col sm:flex-row gap-2">
                   <button type="button" onClick={() => handleUpdateStatus(selectedComplaint.id, 'IN_PROGRESS')} className="btn btn-secondary flex-1">
                     Mark In Progress
                   </button>

@@ -1,313 +1,484 @@
 import { Document, Page, Text, View, StyleSheet, Font, Image } from '@react-pdf/renderer';
+
+const getAssetUrl = (relativePath) => {
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    return `${window.location.origin}${relativePath}`;
+  }
+  return `http://localhost:5173${relativePath}`;
+};
+
 Font.register({
-  family: 'Bornomala',
+  family: 'Cambria',
   fonts: [
-    { src: '/fonts/Bornomala-Regular.ttf', fontWeight: 'normal' },
-    { src: '/fonts/Bornomala-Bold.ttf', fontWeight: 'bold' }
+    { src: getAssetUrl('/fonts/Cambria-Regular.ttf'), fontWeight: 'normal' },
+    { src: getAssetUrl('/fonts/Cambria-Bold.ttf'), fontWeight: 'bold' },
+    { src: getAssetUrl('/fonts/Cambria-Italic.ttf'), fontStyle: 'italic' },
   ]
 });
 
+
 const styles = StyleSheet.create({
   page: {
-    padding: '30px 40px',
-    fontFamily: 'Bornomala',
-    fontSize: 11,
-    lineHeight: 1.4,
+    padding: '22px 32px',
+    fontFamily: 'Cambria',
+    fontSize: 9.5,
+    lineHeight: 1.3,
+    color: '#000000',
   },
   headerContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 20,
-    position: 'relative'
+    marginBottom: 6,
+    position: 'relative',
+    minHeight: 52,
   },
-  logoPlaceholder: {
+  logoContainer: {
     position: 'absolute',
     left: 0,
-    width: 60,
-    height: 60,
-    border: '1px solid #000',
-    borderRadius: 30,
-    justifyContent: 'center',
+    top: 0,
     alignItems: 'center',
+    width: 60,
   },
-  logoText: {
-    fontSize: 9,
+  logoImage: {
+    width: 48,
+    height: 48,
+    objectFit: 'contain',
+  },
+  paidSealContainer: {
+    position: 'absolute',
+    right: 0,
+    top: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: 68,
+  },
+  paidSealOuter: {
+    borderWidth: 1.8,
+    borderColor: '#dc2626',
+    borderRadius: 3,
+    padding: 1.5,
+    borderStyle: 'solid',
+  },
+  paidSealInner: {
+    borderWidth: 0.8,
+    borderColor: '#dc2626',
+    borderRadius: 2,
+    paddingVertical: 2.5,
+    paddingHorizontal: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  paidSealText: {
+    fontSize: 11.5,
+    fontFamily: 'Cambria',
     fontWeight: 'bold',
+    color: '#dc2626',
+    letterSpacing: 2,
+    textAlign: 'center',
   },
   headerTextContainer: {
     alignItems: 'center',
   },
-  headerTop: {
-    fontSize: 9,
-    marginBottom: 4,
+  headerMotto: {
+    fontSize: 8.5,
+    fontFamily: 'Cambria',
+    fontStyle: 'italic',
+    color: '#222222',
+    marginBottom: 2,
   },
   headerMain: {
-    fontSize: 14,
+    fontSize: 12.5,
+    fontFamily: 'Cambria',
     fontWeight: 'bold',
-    marginBottom: 4,
+    color: '#000000',
+    marginBottom: 2,
+    textAlign: 'center',
   },
   headerSub: {
-    fontSize: 10,
+    fontSize: 9,
+    fontFamily: 'Cambria',
+    color: '#333333',
+  },
+  doubleLineContainer: {
+    width: '100%',
+    marginTop: 8,
+    marginBottom: 10,
+  },
+  boldLine: {
+    width: '100%',
+    borderBottomWidth: 1.5,
+    borderBottomColor: '#000000',
+    marginBottom: 2,
   },
   titleContainer: {
     alignItems: 'center',
-    marginBottom: 25,
-    marginTop: 10,
+    marginBottom: 12,
+  },
+  titleBadge: {
+    borderWidth: 1,
+    borderColor: '#333333',
+    borderRadius: 14,
+    paddingVertical: 3.5,
+    paddingHorizontal: 16,
+    backgroundColor: '#ffffff',
   },
   titleText: {
-    fontSize: 14,
+    fontSize: 10.5,
+    fontFamily: 'Cambria',
     fontWeight: 'bold',
-    textDecoration: 'underline',
+    color: '#000000',
+    textAlign: 'center',
+  },
+  sectionHeader: {
+    marginTop: 4,
+    marginBottom: 4,
+  },
+  sectionTitleText: {
+    fontSize: 9.5,
+    fontFamily: 'Cambria',
+    fontWeight: 'normal',
+    color: '#000000',
   },
   row: {
     flexDirection: 'row',
-    marginBottom: 10,
+    marginBottom: 6.5,
     alignItems: 'flex-end',
   },
   textLabel: {
-    marginRight: 5,
+    fontSize: 9,
+    fontFamily: 'Cambria',
+    color: '#000000',
+    marginRight: 4,
   },
   dottedLine: {
     flex: 1,
     borderBottomWidth: 1,
     borderBottomStyle: 'dotted',
-    borderBottomColor: '#000',
-    paddingBottom: 2,
-    marginRight: 10,
-    textAlign: 'center',
+    borderBottomColor: '#444444',
+    paddingBottom: 1,
+    marginRight: 6,
+    fontSize: 9,
+    fontFamily: 'Cambria',
+    fontWeight: 'bold',
+    color: '#000000',
+    minHeight: 12,
   },
   dottedLineShort: {
-    width: '30%',
+    width: '24%',
     borderBottomWidth: 1,
     borderBottomStyle: 'dotted',
-    borderBottomColor: '#000',
-    paddingBottom: 2,
-    marginRight: 10,
-    textAlign: 'center',
+    borderBottomColor: '#444444',
+    paddingBottom: 1,
+    marginRight: 6,
+    fontSize: 9,
+    fontFamily: 'Cambria',
+    fontWeight: 'bold',
+    color: '#000000',
+    minHeight: 12,
   },
   dottedLineMedium: {
-    width: '40%',
+    width: '36%',
     borderBottomWidth: 1,
     borderBottomStyle: 'dotted',
-    borderBottomColor: '#000',
+    borderBottomColor: '#444444',
+    paddingBottom: 1,
+    marginRight: 6,
+    fontSize: 9,
+    fontFamily: 'Cambria',
+    fontWeight: 'bold',
+    color: '#000000',
+    minHeight: 12,
+  },
+  guestBlock: {
+    marginLeft: 12,
+    marginBottom: 3,
     paddingBottom: 2,
-    marginRight: 10,
-    textAlign: 'center',
-  },
-  sectionTitle: {
-    marginTop: 5,
-    marginBottom: 10,
-  },
-  guestSection: {
-    marginLeft: 15,
-    marginBottom: 15,
   },
   approvalSection: {
     alignItems: 'flex-end',
-    marginTop: 20,
-    marginBottom: 40,
+    marginTop: 12,
+    marginBottom: 16,
+  },
+  approvalBadge: {
+    borderWidth: 1,
+    borderColor: '#444444',
+    borderRadius: 6,
+    paddingVertical: 3.5,
+    paddingHorizontal: 12,
+    backgroundColor: '#ffffff',
+  },
+  approvalText: {
+    fontSize: 9,
+    fontFamily: 'Cambria',
+    fontWeight: 'bold',
+    color: '#111111',
   },
   footerSignatures: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginTop: 'auto',
-    paddingTop: 40,
+    paddingTop: 16,
   },
   signBlock: {
     alignItems: 'center',
-    width: '30%',
+    width: '31%',
   },
   signLine: {
     width: '100%',
     borderTopWidth: 1,
-    borderTopColor: '#000',
+    borderTopColor: '#333333',
     marginBottom: 5,
   },
-  signText: {
-    fontSize: 10,
+  signTitle: {
+    fontSize: 8.5,
+    fontFamily: 'Cambria',
+    fontWeight: 'bold',
     textAlign: 'center',
+    color: '#000000',
+    marginBottom: 2,
+  },
+  signSubtitle: {
+    fontSize: 8,
+    fontFamily: 'Cambria',
+    textAlign: 'center',
+    color: '#333333',
+    marginBottom: 1,
+  },
+  signNote: {
+    fontSize: 7.5,
+    fontFamily: 'Cambria',
+    textAlign: 'center',
+    color: '#555555',
   }
 });
 
-export const GuestHouseApplicationPDF = ({ booking }) => {
-  // Ensure we have 3 guests for the form structure
-  const guests = [
-    booking?.guests?.[0] || { name: '', nid: '', address: '', mobile: '', relationship: '' },
-    booking?.guests?.[1] || { name: '', nid: '', address: '', mobile: '', relationship: '' },
-    booking?.guests?.[2] || { name: '', nid: '', address: '', mobile: '', relationship: '' },
-  ];
+const formatStayPurpose = (purpose) => {
+  if (!purpose) return '';
+  if (purpose === 'অফিসিয়াল' || String(purpose).toLowerCase() === 'official') return 'Official';
+  if (purpose === 'ব্যক্তিগত' || String(purpose).toLowerCase() === 'personal') return 'Personal';
+  return purpose;
+};
+
+const formatRoomType = (booking) => {
+  if (!booking) return '';
+  const count = booking.requestedRoomCount || 1;
+  const rawType = booking.requestedRoomType || booking.assignedRoom || '';
+  if (!rawType) return '';
+  const cleanType = rawType.replace(/_/g, ' ');
+  return `${count} x ${cleanType}`;
+};
+
+export const formatIssueDateTime = (dateObj) => {
+  if (!dateObj) dateObj = new Date();
+  if (typeof dateObj === 'string' || typeof dateObj === 'number') {
+    dateObj = new Date(dateObj);
+  }
+  if (isNaN(dateObj.getTime())) {
+    dateObj = new Date();
+  }
+  
+  const year = dateObj.getFullYear();
+  const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+  const day = String(dateObj.getDate()).padStart(2, '0');
+  let hours = dateObj.getHours();
+  const minutes = String(dateObj.getMinutes()).padStart(2, '0');
+  const seconds = String(dateObj.getSeconds()).padStart(2, '0');
+  const ampm = hours >= 12 ? 'PM' : 'AM';
+  hours = hours % 12;
+  hours = hours ? hours : 12;
+  const strHours = String(hours).padStart(2, '0');
+
+  return `${day}-${month}-${year}   (${strHours}:${minutes}:${seconds} ${ampm})`;
+};
+
+export const GuestHouseApplicationPDF = ({ booking, issueDateTime }) => {
+  const allGuests = booking?.guests || [];
+  // Guest A (Resident A) is mandatory in every application
+  const guestA = allGuests.find(g => g.key === 'A') || allGuests[0] || { name: '', nid: '', address: '', mobile: '', relationship: '' };
+
+  const formattedIssueDate = formatIssueDateTime(issueDateTime || booking?.issueDateTime);
+
+  // Guest B, Guest C are optional and only included if added from the application form
+  const additionalGuests = allGuests.filter(
+    g => g !== guestA && (
+      (typeof g.name === 'string' && g.name.trim() !== '') ||
+      (typeof g.nid === 'string' && g.nid.trim() !== '') ||
+      (typeof g.mobile === 'string' && g.mobile.trim() !== '') ||
+      (typeof g.address === 'string' && g.address.trim() !== '')
+    )
+  );
+
+  const logoSrc = getAssetUrl('/images/ruet-logo.jpg');
 
   return (
     <Document>
-      <Page size="LEGAL" style={styles.page}>
+      <Page size="A4" style={styles.page}>
 
         {/* Header */}
         <View style={styles.headerContainer}>
-          <View style={styles.logoPlaceholder}>
-            <Text style={styles.logoText}>RUET Logo</Text>
+          {/* Top-left: RUET Logo (without text) */}
+          <View style={styles.logoContainer}>
+            <Image src={logoSrc} style={styles.logoImage} />
           </View>
+
+          {/* Centered: Motto, University Name & Address */}
           <View style={styles.headerTextContainer}>
-            <Text style={styles.headerTop}>ঐশী জ্যোতিই আমাদের পথ প্রদর্শক</Text>
-            <Text style={styles.headerMain}>রাজশাহী প্রকৌশল ও প্রযুক্তি বিশ্ববিদ্যালয়</Text>
-            <Text style={styles.headerSub}>রাজশাহী-৬২০৪ ।</Text>
+            <Text style={styles.headerMotto}>Heaven's Light is Our Guide</Text>
+            <Text style={styles.headerMain}>Rajshahi University of Engineering and Technology</Text>
+            <Text style={styles.headerSub}>Rajshahi-6204.</Text>
           </View>
+
+          {/* Top-right: PAID Seal */}
+          <View style={styles.paidSealContainer}>
+            <View style={styles.paidSealOuter}>
+              <View style={styles.paidSealInner}>
+                <Text style={styles.paidSealText}>PAID</Text>
+              </View>
+            </View>
+          </View>
+        </View>
+
+        {/* Double bold parallel separation line between header and under sections */}
+        <View style={styles.doubleLineContainer}>
+          <View style={styles.boldLine} />
+          <View style={styles.boldLine} />
         </View>
 
         {/* Title */}
         <View style={styles.titleContainer}>
-          <Text style={styles.titleText}>রাজশাহীস্থ গেস্ট হাউজের কক্ষ ব্যবহারের আবেদন ফরম</Text>
+          <View style={styles.titleBadge}>
+            <Text style={styles.titleText}>Application Form for Guest House Room in Rajshahi</Text>
+          </View>
         </View>
 
         {/* 01. Applicant Info */}
         <View style={styles.row}>
-          <Text style={styles.textLabel}>(০১) আবেদনকারীর নাম :</Text>
+          <Text style={styles.textLabel}>01. Applicant's name:</Text>
           <Text style={styles.dottedLine}>{booking?.applicantName || ''}</Text>
-          <Text style={styles.textLabel}>পদবী :</Text>
+          <Text style={styles.textLabel}>Title:</Text>
           <Text style={styles.dottedLineShort}>{booking?.designation || ''}</Text>
         </View>
         <View style={styles.row}>
-          <Text style={styles.textLabel}>বিভাগ/শাখা :</Text>
+          <Text style={styles.textLabel}>Department:</Text>
           <Text style={styles.dottedLineMedium}>{booking?.department || ''}</Text>
-          <Text style={styles.textLabel}>মোবাইল নম্বর :</Text>
+          <Text style={styles.textLabel}>Mobile Number:</Text>
           <Text style={styles.dottedLine}>{booking?.mobileNumber || ''}</Text>
         </View>
 
-        {/* 02. Guest Info */}
-        <View style={styles.sectionTitle}>
-          <Text>(০২) অবস্থানকারীর পূর্ণাঙ্গ তথ্য :</Text>
+        {/* 02. Full information of the resident (not bold) */}
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitleText}>02. Full information of the resident:</Text>
         </View>
 
-        {/* Guest Ka */}
-        <View style={styles.guestSection}>
+        {/* Guest A - Mandatory in every application */}
+        <View style={styles.guestBlock}>
           <View style={styles.row}>
-            <Text style={styles.textLabel}>ক) নাম :</Text>
-            <Text style={styles.dottedLine}>{guests[0].name}</Text>
-            <Text style={styles.textLabel}>NID নম্বর :</Text>
-            <Text style={styles.dottedLineShort}>{guests[0].nid}</Text>
+            <Text style={styles.textLabel}>A) Name:</Text>
+            <Text style={styles.dottedLine}>{guestA.name || ''}</Text>
+            <Text style={styles.textLabel}>NID Number:</Text>
+            <Text style={styles.dottedLineMedium}>{guestA.nid || ''}</Text>
           </View>
           <View style={styles.row}>
-            <Text style={styles.textLabel}>ঠিকানা :</Text>
-            <Text style={styles.dottedLine}>{guests[0].address}</Text>
+            <Text style={styles.textLabel}>Address:</Text>
+            <Text style={styles.dottedLine}>{guestA.address || ''}</Text>
           </View>
           <View style={styles.row}>
-            <Text style={styles.textLabel}>মোবাইল নম্বর :</Text>
-            <Text style={styles.dottedLineMedium}>{guests[0].mobile}</Text>
-            <Text style={styles.textLabel}>আবেদনকারীর সাথে সম্পর্ক :</Text>
-            <Text style={styles.dottedLine}>{guests[0].relationship}</Text>
-          </View>
-        </View>
-
-        {/* Guest Kha */}
-        <View style={styles.guestSection}>
-          <View style={styles.row}>
-            <Text style={styles.textLabel}>খ) নাম :</Text>
-            <Text style={styles.dottedLine}>{guests[1].name}</Text>
-            <Text style={styles.textLabel}>NID নম্বর :</Text>
-            <Text style={styles.dottedLineShort}>{guests[1].nid}</Text>
-          </View>
-          <View style={styles.row}>
-            <Text style={styles.textLabel}>ঠিকানা :</Text>
-            <Text style={styles.dottedLine}>{guests[1].address}</Text>
-          </View>
-          <View style={styles.row}>
-            <Text style={styles.textLabel}>মোবাইল নম্বর :</Text>
-            <Text style={styles.dottedLineMedium}>{guests[1].mobile}</Text>
-            <Text style={styles.textLabel}>আবেদনকারীর সাথে সম্পর্ক :</Text>
-            <Text style={styles.dottedLine}>{guests[1].relationship}</Text>
+            <Text style={styles.textLabel}>Mobile Number:</Text>
+            <Text style={styles.dottedLineMedium}>{guestA.mobile || ''}</Text>
+            <Text style={styles.textLabel}>Relationship to the applicant:</Text>
+            <Text style={styles.dottedLine}>{guestA.relationship || ''}</Text>
           </View>
         </View>
 
-        {/* Guest Ga */}
-        <View style={styles.guestSection}>
-          <View style={styles.row}>
-            <Text style={styles.textLabel}>গ) নাম :</Text>
-            <Text style={styles.dottedLine}>{guests[2].name}</Text>
-            <Text style={styles.textLabel}>NID নম্বর :</Text>
-            <Text style={styles.dottedLineShort}>{guests[2].nid}</Text>
-          </View>
-          <View style={styles.row}>
-            <Text style={styles.textLabel}>ঠিকানা :</Text>
-            <Text style={styles.dottedLine}>{guests[2].address}</Text>
-          </View>
-          <View style={styles.row}>
-            <Text style={styles.textLabel}>মোবাইল নম্বর :</Text>
-            <Text style={styles.dottedLineMedium}>{guests[2].mobile}</Text>
-            <Text style={styles.textLabel}>আবেদনকারীর সাথে সম্পর্ক :</Text>
-            <Text style={styles.dottedLine}>{guests[2].relationship}</Text>
-          </View>
-        </View>
+        {/* Guest B, C - Optional, rendered only if added from the application form */}
+        {additionalGuests.map((guest, idx) => {
+          const letter = String.fromCharCode(66 + idx); // 'B', 'C'
+          return (
+            <View key={idx} style={styles.guestBlock}>
+              <View style={styles.row}>
+                <Text style={styles.textLabel}>{letter}) Name:</Text>
+                <Text style={styles.dottedLine}>{guest.name || ''}</Text>
+                <Text style={styles.textLabel}>NID Number:</Text>
+                <Text style={styles.dottedLineMedium}>{guest.nid || ''}</Text>
+              </View>
+              <View style={styles.row}>
+                <Text style={styles.textLabel}>Address:</Text>
+                <Text style={styles.dottedLine}>{guest.address || ''}</Text>
+              </View>
+              <View style={styles.row}>
+                <Text style={styles.textLabel}>Mobile Number:</Text>
+                <Text style={styles.dottedLineMedium}>{guest.mobile || ''}</Text>
+                <Text style={styles.textLabel}>Relationship to the applicant:</Text>
+                <Text style={styles.dottedLine}>{guest.relationship || ''}</Text>
+              </View>
+            </View>
+          );
+        })}
 
-        {/* 03. Check-In */}
+        {/* 03. Date of room requirement */}
         <View style={styles.row}>
-          <Text style={styles.textLabel}>(০৩) কক্ষ প্রয়োজনের তারিখ :</Text>
+          <Text style={styles.textLabel}>03. Date of room requirement:</Text>
           <Text style={styles.dottedLine}>{booking?.checkInDate || ''}</Text>
-          <Text style={styles.textLabel}>সময় :</Text>
+          <Text style={styles.textLabel}>Time:</Text>
           <Text style={styles.dottedLineShort}>{booking?.checkInTime || ''}</Text>
         </View>
 
-        {/* 04. Check-Out */}
+        {/* 04. Departure date */}
         <View style={styles.row}>
-          <Text style={styles.textLabel}>(০৪) প্রস্থানের তারিখ :</Text>
+          <Text style={styles.textLabel}>04. Departure date:</Text>
           <Text style={styles.dottedLine}>{booking?.checkOutDate || ''}</Text>
-          <Text style={styles.textLabel}>সময় :</Text>
+          <Text style={styles.textLabel}>Time:</Text>
           <Text style={styles.dottedLineShort}>{booking?.checkOutTime || ''}</Text>
         </View>
 
-        {/* 05. Duration and Room Info */}
+        {/* 05. Total days of stay and Room No. */}
         <View style={styles.row}>
-          <Text style={styles.textLabel}>(০৫) মোট অবস্থানের দিন :</Text>
-          <Text style={styles.dottedLineMedium}>{booking?.totalDays || ''}</Text>
-          <Text style={styles.textLabel}>কক্ষ সংখ্যা ও ধরন :</Text>
-          <Text style={styles.dottedLine}>{booking?.requestedRoomCount ? `${booking?.requestedRoomCount} x ${booking?.requestedRoomType.replace(/_/g, ' ')}` : ''}</Text>
+          <Text style={styles.textLabel}>05. Total days of stay:</Text>
+          <Text style={styles.dottedLineShort}>{booking?.totalDays || ''}</Text>
+          <Text style={styles.textLabel}>Room No. :</Text>
+          <Text style={styles.dottedLine}>
+            {booking?.assignedRoom || booking?.assigned_room || booking?.roomNumber || booking?.room_number || ''}
+          </Text>
         </View>
 
-        {/* 06. Purpose */}
+        {/* 06. Reason for stay */}
         <View style={styles.row}>
-          <Text style={styles.textLabel}>(০৬) অবস্থানের কারণ (অফিসিয়াল/ব্যক্তিগত) :</Text>
-          <Text style={styles.dottedLine}>{booking?.stayPurpose || ''}</Text>
+          <Text style={styles.textLabel}>06. Reason for stay (official/personal):</Text>
+          <Text style={styles.dottedLine}>{formatStayPurpose(booking?.stayPurpose)}</Text>
         </View>
 
-        {/* 07. Signature & Date */}
-        <View style={[styles.row, { minHeight: 40 }]}>
-          <Text style={styles.textLabel}>(০৭) আবেদনকারীর স্বাক্ষর ও তারিখ :</Text>
-          <View style={[styles.dottedLine, { flexDirection: 'row', justifyContent: 'flex-start', alignItems: 'flex-end', paddingLeft: 10 }]}>
-            {booking?.signatureImage && (
-              <Image
-                src={booking.signatureImage}
-                style={{ height: 35, width: 80, objectFit: 'contain', marginBottom: 0, marginRight: 15 }}
-              />
-            )}
-            <Text style={{ marginBottom: 2, fontSize: 10 }}>
-              {new Date().toLocaleDateString()}
-            </Text>
-          </View>
+        {/* 07. Date & Time of Issue */}
+        <View style={styles.row}>
+          <Text style={styles.textLabel}>07. Date & Time of Issue:</Text>
+          <Text style={styles.dottedLine}>{formattedIssueDate}</Text>
         </View>
 
         {/* Approval block */}
         <View style={styles.approvalSection}>
-          <Text>অনুমোদিত/ অ-অনুমোদিত</Text>
+          <View style={styles.approvalBadge}>
+            <Text style={styles.approvalText}>Approved/Unapproved</Text>
+          </View>
         </View>
 
         {/* Signatures */}
         <View style={styles.footerSignatures}>
           <View style={styles.signBlock}>
             <View style={styles.signLine} />
-            <Text style={styles.signText}>বিভাগীয় প্রধান/ শাখা প্রধান</Text>
-            <Text style={styles.signText}>সুপারিশ করা হইল/ হইল না ।</Text>
-            <Text style={styles.signText}>(অফিসিয়াল বুকিং এর ক্ষেত্রে)</Text>
+            <Text style={styles.signTitle}>Head of Department</Text>
+            <Text style={styles.signSubtitle}>Recommended/ Not Recommended</Text>
+            <Text style={styles.signNote}>(For official bookings)</Text>
           </View>
           <View style={styles.signBlock}>
             <View style={styles.signLine} />
-            <Text style={styles.signText}>ইনচার্জ</Text>
-            <Text style={styles.signText}>গেস্ট হাউজ</Text>
-            <Text style={styles.signText}>রুয়েট, রাজশাহী।</Text>
+            <Text style={styles.signTitle}>In Charge</Text>
+            <Text style={styles.signSubtitle}>Guest House</Text>
+            <Text style={styles.signNote}>RUET, Rajshahi.</Text>
           </View>
           <View style={styles.signBlock}>
             <View style={styles.signLine} />
-            <Text style={styles.signText}>ভাইস-চ্যান্সেলর</Text>
-            <Text style={styles.signText}>রাজশাহী প্রকৌশল ও প্রযুক্তি বিশ্ববিদ্যালয়।</Text>
-            <Text style={styles.signText}>রুয়েট, রাজশাহী।</Text>
+            <Text style={styles.signTitle}>Vice-Chancellor</Text>
+            <Text style={styles.signSubtitle}>RUET, Rajshahi.</Text>
           </View>
         </View>
 

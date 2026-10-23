@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import Layout from './components/layout/Layout';
 import RoleGuard from './components/layout/RoleGuard';
 
@@ -60,6 +60,7 @@ function App() {
             <Route path="profile" element={<StudentProfile />} />
             <Route path="complaints" element={<Complaints />} />
             <Route path="meals" element={<BookMeal />} />
+            <Route path="dining" element={<Navigate to="/student/meals" replace />} />
           </Route>
 
           {/* Protected Admin Routes */}
@@ -73,6 +74,8 @@ function App() {
             <Route path="profile" element={<AdminProfile />} />
             <Route path="complaints" element={<ManageComplaints />} />
             <Route path="meals" element={<ManageMeals />} />
+            <Route path="dining" element={<Navigate to="/admin/meals" replace />} />
+            <Route path="notifications" element={<Notifications />} />
             <Route path="booking-success" element={<BookingSuccess />} />
           </Route>
 
@@ -90,14 +93,12 @@ function App() {
             <Route path="profile" element={<StudentProfile />} />
             <Route path="complaints" element={<Complaints />} />
             <Route path="meals" element={<BookMeal />} />
+            <Route path="dining" element={<Navigate to="/teacher/meals" replace />} />
           </Route>
         </Route>
       </Routes>
     </BrowserRouter>
   );
 }
-
-// Temporary Outlet wrapper for nested routes
-import { Outlet } from 'react-router-dom';
 
 export default App;

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { bookingService } from '../../services/bookingService';
 import { roomService } from '../../services/roomService';
+import { supabase } from '../../config/supabaseClient';
 import { Users, Calendar, DoorOpen, CreditCard, Clock } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
@@ -38,8 +39,22 @@ export default function AdminDashboard() {
     fetchStats();
 
     window.addEventListener('indicatorsChanged', fetchStats);
+    window.addEventListener('roomsChanged', fetchStats);
+
+    const channel = supabase
+      .channel('realtime_admin_dashboard_stats')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'rooms' }, () => {
+        fetchStats();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'bookings' }, () => {
+        fetchStats();
+      })
+      .subscribe();
+
     return () => {
       window.removeEventListener('indicatorsChanged', fetchStats);
+      window.removeEventListener('roomsChanged', fetchStats);
+      supabase.removeChannel(channel);
     };
   }, []);
 
@@ -47,9 +62,9 @@ export default function AdminDashboard() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold mb-6">Admin Dashboard</h1>
+      <h1 className="text-xl sm:text-2xl font-bold mb-6">Admin Dashboard</h1>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 mb-6 sm:mb-8">
         <div className="card flex items-center justify-between">
           <div>
             <p className="text-muted text-sm font-medium">Pending Requests</p>

@@ -1,9 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { bookingService } from '../../services/bookingService';
 import { AlertCircle, Plus, Trash2, CheckCircle, FileText, CreditCard } from 'lucide-react';
-import { GuestHouseApplicationPDF } from '../../components/pdf/GuestHouseApplicationPDF';
 import { authService } from '../../services/authService';
 import { roomService } from '../../services/roomService';
 import { API_BASE_URL } from '../../config/api';
@@ -12,7 +11,7 @@ export default function BookingForm() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const { selectedRoom, roomType, bookingDate } = location.state || {};
+  const { selectedRoom, roomType, bookingDate, checkOutDate, totalDays } = location.state || {};
 
   useEffect(() => {
     window.scrollTo(0, 0);
@@ -26,36 +25,57 @@ export default function BookingForm() {
     mobileNumber: user?.role === 'teacher' ? (user.mobile || '') : ''
   });
 
-  // Step 2 State: Guests
+  // Step 2 State: Guests (Guest A is mandatory, Guest B & C are optional)
   const [guests, setGuests] = useState([
-    { key: 'ক', name: '', nid: '', address: '', mobile: '', relationship: '' }
+    { key: 'A', name: '', nid: '', address: '', mobile: '', relationship: '' }
   ]);
 
   // Step 3 & 4 State: Dates
   const [dates, setDates] = useState({
     checkInDate: bookingDate || '',
     checkInTime: '12:00',
-    checkOutDate: '',
+    checkOutDate: checkOutDate || (bookingDate ? new Date(new Date(bookingDate).getTime() + 86400000).toISOString().split('T')[0] : ''),
     checkOutTime: '12:00'
   });
 
   const [roomDetails, setRoomDetails] = useState({
-    totalDays: 0,
+    totalDays: totalDays || 0,
     requestedRoomCount: 1, // Fixed to 1
     requestedRoomType: roomType || '',
-    stayPurpose: 'ব্যক্তিগত'
+    stayPurpose: 'Personal'
   });
 
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successBooking, setSuccessBooking] = useState(null);
-  const [signatureImage, setSignatureImage] = useState(null);
 
   // Teacher Approval Selection
   const [teachers, setTeachers] = useState([]);
   const [searchTeacherQuery, setSearchTeacherQuery] = useState('');
   const [selectedTeacherId, setSelectedTeacherId] = useState('');
   const [isTeacherDropdownOpen, setIsTeacherDropdownOpen] = useState(false);
+  const teacherDropdownRef = useRef(null);
+
+  // Close teacher dropdown on outside click or tap
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (teacherDropdownRef.current && !teacherDropdownRef.current.contains(event.target)) {
+        setIsTeacherDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('touchstart', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('touchstart', handleClickOutside);
+    };
+  }, []);
+
+  const handleSelectTeacher = (teacher) => {
+    setSelectedTeacherId(teacher.id);
+    setSearchTeacherQuery(`${teacher.name} (Dept: ${teacher.department || 'N/A'})`);
+    setIsTeacherDropdownOpen(false);
+  };
 
   // Dynamic Room Categories
   const [availableCategories, setAvailableCategories] = useState([]);
@@ -117,16 +137,17 @@ export default function BookingForm() {
 
   const handleAddGuest = () => {
     if (guests.length >= 3) return;
-    const nextKey = guests.length === 1 ? 'খ' : 'গ';
+    const keys = ['A', 'B', 'C'];
+    const nextKey = keys[guests.length] || 'B';
     setGuests([...guests, { key: nextKey, name: '', nid: '', address: '', mobile: '', relationship: '' }]);
   };
 
   const handleRemoveGuest = (index) => {
-    if (guests.length <= 1) return;
+    // Guest A (index 0) is mandatory and cannot be removed
+    if (index === 0) return;
     const newGuests = guests.filter((_, i) => i !== index);
-    // Re-assign keys
-    const keys = ['ক', 'খ', 'গ'];
-    newGuests.forEach((g, i) => g.key = keys[i]);
+    const keys = ['A', 'B', 'C'];
+    newGuests.forEach((g, i) => g.key = keys[i] || String.fromCharCode(65 + i));
     setGuests(newGuests);
   };
 
@@ -141,11 +162,16 @@ export default function BookingForm() {
       return "Applicant information is incomplete.";
     }
 
-    // Validate guests
-    for (let i = 0; i < guests.length; i++) {
+    // Guest A is mandatory in every application
+    if (!guests[0]?.name || !guests[0]?.nid || !guests[0]?.mobile || !guests[0]?.relationship) {
+      return "Guest A (অতিথি A) information is mandatory and must be completely filled.";
+    }
+
+    // Guest B, C are optional, but if added, their fields must be filled
+    for (let i = 1; i < guests.length; i++) {
       const g = guests[i];
       if (!g.name || !g.nid || !g.mobile || !g.relationship) {
-        return `Guest ${g.key} information is incomplete.`;
+        return `Guest ${g.key || (i === 1 ? 'B' : 'C')} information is incomplete. Please fill all fields or remove the guest.`;
       }
     }
 
@@ -161,7 +187,7 @@ export default function BookingForm() {
       return "Total days must be at least 1.";
     }
 
-    // Removed room count logic as count is always 1.
+    // Room count logic
     if (guests.length > 2 && roomDetails.requestedRoomType === 'TYPE_3') {
       return "Room Type 3 has a maximum capacity of 2. For 3 guests, request Type 4/5/6 or book multiple rooms separately.";
     }
@@ -198,16 +224,18 @@ export default function BookingForm() {
       
       const totalAmount = rate * roomDetails.requestedRoomCount * roomDetails.totalDays;
 
+      // Guest A is always kept; Guest B & C are kept if they have details
+      const validGuests = guests.filter((g, index) => index === 0 || g.name || g.nid || g.mobile || g.address);
+
       const bookingData = {
         userId: user.id,
         isTeacherBooking: user.role === 'teacher',
         ...applicantInfo,
-        guests,
+        guests: validGuests,
         ...dates,
         ...roomDetails,
         assignedRoom: selectedRoom || null,
         approvingTeacherId: user.role === 'teacher' ? user.id : selectedTeacherId,
-        signatureImage,
         totalAmount
       };
 
@@ -291,7 +319,7 @@ export default function BookingForm() {
                 value={applicantInfo.applicantName}
                 onChange={e => setApplicantInfo({ ...applicantInfo, applicantName: e.target.value })}
                 readOnly={user?.role !== 'teacher'}
-                placeholder={user?.role !== 'teacher' ? "Select a teacher from Section 08" : ""}
+                placeholder={user?.role !== 'teacher' ? "Select a teacher from Section 07" : ""}
                 style={user?.role !== 'teacher' ? { backgroundColor: 'rgba(0,0,0,0.05)' } : {}}
               />
             </div>
@@ -330,10 +358,18 @@ export default function BookingForm() {
 
         {/* Section 02 */}
         <section className="card mb-6 hover-scale">
-          <div className="flex justify-between items-center mb-4 bg-primary text-white p-2 rounded">
-            <h2 className="text-lg font-bold">02. অবস্থানকারীর পূর্ণাঙ্গ তথ্য (Guest Information)</h2>
+          <div className="flex flex-wrap justify-between items-center gap-2 mb-4 bg-primary text-white p-3 rounded">
+            <div>
+              <h2 className="text-base sm:text-lg font-bold">02. অবস্থানকারীর তথ্য (Resident / Guest Information)</h2>
+              <span className="text-xs opacity-90 block">Guest A is mandatory. Guest B and Guest C are optional.</span>
+            </div>
             {guests.length < 3 && (
-              <button type="button" onClick={handleAddGuest} className="flex items-center gap-1 hover-scale" style={{ backgroundColor: 'white', color: 'black', fontWeight: 'bold', border: 'none', borderRadius: '4px', padding: '0.2rem 0.5rem', fontSize: '0.75rem', cursor: 'pointer' }}>
+              <button 
+                type="button" 
+                onClick={handleAddGuest} 
+                className="flex items-center gap-1 hover-scale" 
+                style={{ backgroundColor: 'white', color: 'black', fontWeight: 'bold', border: 'none', borderRadius: '4px', padding: '0.35rem 0.75rem', fontSize: '0.75rem', cursor: 'pointer' }}
+              >
                 <Plus size={14} /> Add Guest
               </button>
             )}
@@ -342,39 +378,63 @@ export default function BookingForm() {
           <div className="flex flex-col gap-6">
             {guests.map((guest, index) => (
               <div key={index} className="p-4 rounded border" style={{ borderColor: 'var(--color-border)', position: 'relative' }}>
-                <div className="flex justify-between items-center mb-4">
-                  <h3 className="font-bold">অতিথি {guest.key}</h3>
-                  {guests.length > 1 && (
-                    <button type="button" onClick={() => handleRemoveGuest(index)} className="text-danger flex items-center gap-1 text-sm" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-danger)' }}>
-                      <Trash2 size={16} /> Remove
+                <div className="flex justify-between items-center mb-4 pb-2 border-b" style={{ borderColor: 'var(--color-border)' }}>
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-bold text-base">Guest {guest.key} (অতিথি {guest.key})</h3>
+                    {index === 0 ? (
+                      <span className="text-xs px-2 py-0.5 rounded" style={{ backgroundColor: 'rgba(79, 70, 229, 0.15)', color: 'var(--color-primary)', fontWeight: 600 }}>
+                        Mandatory / আবশ্যক
+                      </span>
+                    ) : (
+                      <span className="text-xs px-2 py-0.5 rounded" style={{ backgroundColor: 'rgba(107, 114, 128, 0.15)', color: 'var(--color-muted)', fontWeight: 500 }}>
+                        Optional / ঐচ্ছিক
+                      </span>
+                    )}
+                  </div>
+                  {index > 0 && (
+                    <button 
+                      type="button" 
+                      onClick={() => handleRemoveGuest(index)} 
+                      className="text-danger flex items-center gap-1 text-sm font-medium hover-scale" 
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-danger)' }}
+                    >
+                      <Trash2 size={16} /> Remove Guest {guest.key}
                     </button>
                   )}
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="form-group mb-0">
-                    <label className="form-label">নাম (Name)</label>
+                    <label className="form-label">
+                      Name (নাম) <span className="text-danger">*</span>
+                    </label>
                     <input type="text" className="form-input" required
                       value={guest.name} onChange={e => handleGuestChange(index, 'name', e.target.value)} />
                   </div>
                   <div className="form-group mb-0">
-                    <label className="form-label">NID নম্বর (NID)</label>
+                    <label className="form-label">
+                      NID (NID নম্বর) <span className="text-danger">*</span>
+                    </label>
                     <input type="text" className="form-input" required
                       value={guest.nid} onChange={e => handleGuestChange(index, 'nid', e.target.value)} />
                   </div>
                   <div className="form-group mb-0 md:col-span-2">
-                    <label className="form-label">ঠিকানা (Address)</label>
-                    <input type="text" className="form-input" required
+                    <label className="form-label">Address (ঠিকানা)</label>
+                    <input type="text" className="form-input"
                       value={guest.address} onChange={e => handleGuestChange(index, 'address', e.target.value)} />
                   </div>
                   <div className="form-group mb-0">
-                    <label className="form-label">মোবাইল নম্বর (Mobile)</label>
+                    <label className="form-label">
+                      Mobile (মোবাইল নম্বর) <span className="text-danger">*</span>
+                    </label>
                     <input type="text" className="form-input" required
                       value={guest.mobile} onChange={e => handleGuestChange(index, 'mobile', e.target.value)} />
                   </div>
                   <div className="form-group mb-0">
-                    <label className="form-label">আবেদনকারীর সাথে সম্পর্ক (Relationship)</label>
-                    <input type="text" className="form-input" required placeholder="e.g., Teacher"
+                    <label className="form-label">
+                      Relationship to Applicant (সম্পর্ক) <span className="text-danger">*</span>
+                    </label>
+                    <input type="text" className="form-input" required placeholder="e.g., Self / Colleague / Relative"
                       value={guest.relationship} onChange={e => handleGuestChange(index, 'relationship', e.target.value)} />
                   </div>
                 </div>
@@ -413,7 +473,10 @@ export default function BookingForm() {
             <div className="form-group">
               <label className="form-label">তারিখ (Date)</label>
               <input type="date" className="form-input" required min={dates.checkInDate}
-                value={dates.checkOutDate} onChange={e => setDates({ ...dates, checkOutDate: e.target.value })}
+                value={dates.checkOutDate} 
+                onChange={e => setDates({ ...dates, checkOutDate: e.target.value })}
+                readOnly={!!checkOutDate || !!bookingDate}
+                style={(checkOutDate || bookingDate) ? { backgroundColor: 'rgba(0,0,0,0.05)', cursor: 'not-allowed' } : {}}
               />
             </div>
             <div className="form-group mb-0">
@@ -466,71 +529,31 @@ export default function BookingForm() {
           </h2>
           <div className="flex gap-6">
             <label className="flex items-center gap-2 cursor-pointer">
-              <input type="radio" name="purpose" value="অফিসিয়াল"
-                checked={roomDetails.stayPurpose === 'অফিসিয়াল'}
+              <input type="radio" name="purpose" value="Official"
+                checked={roomDetails.stayPurpose === 'Official' || roomDetails.stayPurpose === 'অফিসিয়াল'}
                 onChange={e => setRoomDetails({ ...roomDetails, stayPurpose: e.target.value })}
               />
-              অফিসিয়াল (Official)
+              Official (অফিসিয়াল)
             </label>
             <label className="flex items-center gap-2 cursor-pointer">
-              <input type="radio" name="purpose" value="ব্যক্তিগত"
-                checked={roomDetails.stayPurpose === 'ব্যক্তিগত'}
+              <input type="radio" name="purpose" value="Personal"
+                checked={roomDetails.stayPurpose === 'Personal' || roomDetails.stayPurpose === 'ব্যক্তিগত'}
                 onChange={e => setRoomDetails({ ...roomDetails, stayPurpose: e.target.value })}
               />
-              ব্যক্তিগত (Personal)
+              Personal (ব্যক্তিগত)
             </label>
-          </div>
-        </section>
-
-        <section className="card mb-8 hover-scale">
-          <h2 className="text-lg font-bold mb-4 bg-primary text-white p-2 rounded">
-            07. আবেদনকারীর স্বাক্ষর (Signature)
-          </h2>
-          <p className="text-sm text-muted mb-4">
-            Please upload a clear image of your signature (PNG, JPG). By submitting this form, you electronically acknowledge the rules and conditions of the RUET Guest House.
-          </p>
-          <div className="form-group border-2 border-dashed rounded p-6 text-center" style={{ borderColor: 'var(--color-border)', backgroundColor: 'var(--color-background)' }}>
-            {signatureImage ? (
-              <div className="flex flex-col items-center">
-                <img src={signatureImage} alt="Signature Preview" style={{ maxHeight: '100px', marginBottom: '10px' }} />
-                <button type="button" onClick={() => setSignatureImage(null)} className="btn btn-secondary text-sm px-2 py-1">Remove Signature</button>
-              </div>
-            ) : (
-              <div>
-                <input
-                  type="file"
-                  id="signature-upload"
-                  accept="image/png, image/jpeg, image/jpg"
-                  onChange={(e) => {
-                    const file = e.target.files[0];
-                    if (file) {
-                      const reader = new FileReader();
-                      reader.onloadend = () => {
-                        setSignatureImage(reader.result);
-                      };
-                      reader.readAsDataURL(file);
-                    }
-                  }}
-                  style={{ display: 'none' }}
-                />
-                <label htmlFor="signature-upload" className="btn cursor-pointer inline-flex items-center gap-2 mb-3 hover-scale" style={{ backgroundColor: '#bbf7d0', color: 'black', fontWeight: 'bold', border: 'none' }}>
-                  Choose File
-                </label>
-                <p className="text-xs text-muted">Max file size: 2MB</p>
-              </div>
-            )}
           </div>
         </section>
 
         {user.role !== 'teacher' && (
           <section className="card mb-8 hover-scale">
             <h2 className="text-lg font-bold mb-4 bg-primary text-white p-2 rounded">
-              08. অনুমোদনকারী শিক্ষক নির্বাচন (Select Teacher for Approval)
+              07. অনুমোদনকারী শিক্ষক নির্বাচন (Select Teacher for Approval)
             </h2>
             <p className="text-sm text-muted mb-4">
               Search and select a teacher from any department to review and approve your application.
             </p>
-            <div className="form-group mb-0 relative">
+            <div className="form-group mb-0 relative" ref={teacherDropdownRef}>
               <input
                 type="text"
                 className="form-input w-full p-3"
@@ -542,16 +565,17 @@ export default function BookingForm() {
                   setIsTeacherDropdownOpen(true);
                 }}
                 onFocus={() => setIsTeacherDropdownOpen(true)}
-                onBlur={() => {
-                  // Delay closing to allow click event on dropdown item to fire
-                  setTimeout(() => setIsTeacherDropdownOpen(false), 200);
-                }}
               />
               
               {isTeacherDropdownOpen && (
                 <div 
-                  className="absolute z-10 w-full bg-white border rounded shadow-lg max-h-60 overflow-y-auto mt-1" 
-                  style={{ borderColor: 'var(--color-border)', backgroundColor: '#ffffff' }}
+                  className="absolute z-10 w-full border rounded shadow-lg max-h-60 overflow-y-auto mt-1" 
+                  style={{ 
+                    borderColor: 'var(--color-border)', 
+                    backgroundColor: 'var(--color-surface, #ffffff)',
+                    color: 'var(--color-text)'
+                  }}
+                  onMouseDown={(e) => e.preventDefault()}
                 >
                   {teachers.filter(t =>
                     t.name.toLowerCase().includes(searchTeacherQuery.toLowerCase()) ||
@@ -561,15 +585,20 @@ export default function BookingForm() {
                       key={teacher.id} 
                       className="p-3 border-b cursor-pointer transition-colors" 
                       style={{ borderColor: 'var(--color-border)' }}
-                      onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'rgba(59, 130, 246, 0.1)'}
+                      onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'rgba(59, 130, 246, 0.12)'}
                       onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        handleSelectTeacher(teacher);
+                      }}
+                      onPointerDown={() => {
+                        handleSelectTeacher(teacher);
+                      }}
                       onClick={() => {
-                        setSelectedTeacherId(teacher.id);
-                        setSearchTeacherQuery(`${teacher.name} (Dept: ${teacher.department || 'N/A'})`);
-                        setIsTeacherDropdownOpen(false);
+                        handleSelectTeacher(teacher);
                       }}
                     >
-                      <div className="font-bold text-gray-800">{teacher.name}</div>
+                      <div className="font-bold" style={{ color: 'var(--color-text)' }}>{teacher.name}</div>
                       <div className="text-xs text-muted uppercase">Department: {teacher.department || 'N/A'}</div>
                     </div>
                   ))}
@@ -586,12 +615,12 @@ export default function BookingForm() {
           </section>
         )}
 
-        <div className="flex justify-end gap-4 border-top pt-6" style={{ borderTop: '1px solid var(--color-border)' }}>
-          <button type="button" onClick={() => navigate(user.role === 'teacher' ? '/teacher/dashboard' : '/student/dashboard')} className="btn btn-secondary">Cancel</button>
-          <button type="submit" className="btn btn-primary" disabled={isSubmitting || !selectedRoom}>
+        <div className="flex flex-col sm:flex-row justify-end gap-3 sm:gap-4 border-top pt-6" style={{ borderTop: '1px solid var(--color-border)' }}>
+          <button type="button" onClick={() => navigate(user.role === 'teacher' ? '/teacher/dashboard' : '/student/dashboard')} className="btn btn-secondary w-full sm:w-auto text-center">Cancel</button>
+          <button type="submit" className="btn btn-primary w-full sm:w-auto text-center" disabled={isSubmitting || !selectedRoom}>
             {isSubmitting ? 'Processing...' : (
               user.role === 'teacher' ? (
-                <span className="flex items-center gap-2"><CreditCard size={18} /> Pay Now</span>
+                <span className="flex items-center justify-center gap-2"><CreditCard size={18} /> Pay Now</span>
               ) : 'Submit Application'
             )}
           </button>

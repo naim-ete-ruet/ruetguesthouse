@@ -13,7 +13,7 @@ export default function StudentDashboard() {
   useEffect(() => {
     const fetchDashboardData = async () => {
       try {
-        const bookings = await bookingService.getStudentBookings(user.id);
+        const bookings = await bookingService.getStudentBookings(user);
         if (bookings.length > 0) {
           setLatestBooking(bookings[0]);
         }
@@ -45,7 +45,7 @@ export default function StudentDashboard() {
       <h1 className="text-2xl font-bold mb-6">Welcome back, {user.name}</h1>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6 sm:mb-8">
         <div className="card flex items-center justify-between">
           <div>
             <p className="text-muted text-sm font-medium">Total Bookings</p>
@@ -67,15 +67,15 @@ export default function StudentDashboard() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 sm:gap-8">
         {/* Current/Latest Booking */}
         <div className="lg:col-span-2">
-          <h2 className="text-xl font-bold mb-4">Current Booking</h2>
+          <h2 className="text-lg sm:text-xl font-bold mb-4">Current Booking</h2>
           {latestBooking ? (
             <div className="card hover-scale animate-stagger-3">
-              <div className="flex justify-between items-start mb-4 border-bottom pb-4" style={{ borderBottom: '1px solid var(--color-border)' }}>
+              <div className="flex flex-wrap justify-between items-start gap-2 mb-4 border-bottom pb-4" style={{ borderBottom: '1px solid var(--color-border)' }}>
                 <div>
-                  <div className="flex items-center gap-2 mb-1">
+                  <div className="flex flex-wrap items-center gap-2 mb-1">
                     <span className="font-bold text-lg">{latestBooking.id}</span>
                     <span className={`badge ${latestBooking.bookingStatus === 'CONFIRMED' ? 'badge-success' : 'badge-warning'}`}>
                       {latestBooking.bookingStatus}
@@ -85,13 +85,13 @@ export default function StudentDashboard() {
                     {latestBooking.checkInDate} to {latestBooking.checkOutDate} ({latestBooking.totalDays} nights)
                   </p>
                 </div>
-                <div className="text-right">
-                  <p className="text-sm text-muted">Amount</p>
+                <div className="text-left sm:text-right">
+                  <p className="text-xs sm:text-sm text-muted">Amount</p>
                   <p className="font-bold text-lg">৳{latestBooking.totalAmount}</p>
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4 mb-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
                 <div>
                   <p className="text-xs text-muted mb-1 uppercase tracking-wider">Room</p>
                   <p className="font-medium">{latestBooking.assignedRoom || 'Pending Assignment'}</p>
@@ -101,11 +101,11 @@ export default function StudentDashboard() {
                   <p className="text-xs text-muted mb-1 uppercase tracking-wider">Approval & Payment</p>
                   <div className="flex flex-col gap-1">
                     <span className="flex items-center gap-1 text-sm">
-                      {latestBooking.approvalStatus === 'APPROVED' ? <CheckCircle size={14} className="text-success" /> : <Clock size={14} className="text-warning" />}
+                      {latestBooking.approvalStatus === 'APPROVED' ? <CheckCircle size={14} className="text-success flex-shrink-0" /> : <Clock size={14} className="text-warning flex-shrink-0" />}
                       Approval: {latestBooking.approvalStatus.replace(/_/g, ' ')}
                     </span>
                     <span className="flex items-center gap-1 text-sm">
-                      {(latestBooking.paymentStatus === 'PAID' || latestBooking.paymentStatus === 'COMPLETED') ? <CheckCircle size={14} className="text-success" /> : <AlertTriangle size={14} className="text-warning" />}
+                      {(latestBooking.paymentStatus === 'PAID' || latestBooking.paymentStatus === 'COMPLETED') ? <CheckCircle size={14} className="text-success flex-shrink-0" /> : <AlertTriangle size={14} className="text-warning flex-shrink-0" />}
                       Payment: {latestBooking.paymentStatus}
                     </span>
                   </div>
@@ -114,16 +114,16 @@ export default function StudentDashboard() {
 
               {/* Deadline Card */}
               {latestBooking.approvalStatus === 'PENDING_PAYMENT' && latestBooking.paymentStatus === 'PENDING' && latestBooking.bookingStatus !== 'CANCELLED' && (
-                <div className="p-3 rounded mb-4 flex justify-between items-center" style={{ backgroundColor: 'rgba(245, 158, 11, 0.1)', border: '1px solid var(--color-warning)' }}>
+                <div className="p-3 rounded mb-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3" style={{ backgroundColor: 'rgba(245, 158, 11, 0.1)', border: '1px solid var(--color-warning)' }}>
                   <div>
                     <p className="text-sm font-bold text-warning flex items-center gap-1">
-                      <Clock size={16} /> Payment required to confirm booking
+                      <Clock size={16} className="flex-shrink-0" /> Payment required to confirm booking
                     </p>
                     <p className="text-xs text-warning mt-1">
                       {latestBooking.requestedRoomType === 'TYPE_3' ? 'Deadline: 2 hours' : 'Deadline: 5 minutes'}
                     </p>
                   </div>
-                  <Link to="/student/payment" className="btn btn-primary" style={{ backgroundColor: 'var(--color-warning)' }}>Pay Now</Link>
+                  <Link to="/student/payment" className="btn btn-primary w-full sm:w-auto text-center" style={{ backgroundColor: 'var(--color-warning)' }}>Pay Now</Link>
                 </div>
               )}
 

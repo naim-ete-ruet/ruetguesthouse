@@ -17,7 +17,7 @@ export default function PaymentPage() {
   useEffect(() => {
     const fetchPendingPayments = async () => {
       try {
-        const bookings = await bookingService.getStudentBookings(user.id);
+        const bookings = await bookingService.getStudentBookings(user);
         const pending = bookings.filter(b => 
           b.paymentStatus === 'PENDING' && 
           b.approvalStatus === 'PENDING_PAYMENT' && 
@@ -104,7 +104,7 @@ export default function PaymentPage() {
                   }}
                   onClick={() => setSelectedBooking(booking)}
                 >
-                  <div className="flex justify-between items-center">
+                  <div className="flex flex-wrap justify-between items-center gap-2">
                     <div>
                       <h4 className="font-bold">{booking.id}</h4>
                       <p className="text-sm text-muted">{booking.checkInDate} ({booking.totalDays} nights)</p>
@@ -112,9 +112,9 @@ export default function PaymentPage() {
                         {booking.requestedRoomType === 'TYPE_3' ? 'Deadline: 2 hours' : 'Deadline: 5 minutes'}
                       </p>
                     </div>
-                    <div className="text-right">
-                      <p className="text-sm text-muted">Amount</p>
-                      <p className="font-bold text-lg">৳{booking.totalAmount}</p>
+                    <div className="text-left sm:text-right flex-shrink-0">
+                      <p className="text-xs sm:text-sm text-muted">Amount</p>
+                      <p className="font-bold text-base sm:text-lg">৳{booking.totalAmount}</p>
                     </div>
                   </div>
                 </div>
@@ -123,7 +123,7 @@ export default function PaymentPage() {
           </div>
 
           <div>
-            <div className="card sticky" style={{ top: '100px' }}>
+            <div className="card md:sticky" style={{ top: '90px' }}>
               <h3 className="font-bold text-lg mb-4 border-bottom pb-2" style={{ borderBottom: '1px solid var(--color-border)' }}>Order Summary</h3>
               
               {selectedBooking && (

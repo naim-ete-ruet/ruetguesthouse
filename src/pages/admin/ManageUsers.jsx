@@ -48,9 +48,9 @@ export default function ManageUsers() {
     <div className="container">
       <h1 className="text-2xl font-bold mb-6">Manage Users</h1>
 
-      <div className="card mb-6 flex justify-between items-center flex-wrap gap-4">
-        <div className="flex items-center gap-2 w-full md:w-auto flex-1 max-w-md">
-          <Search className="text-muted" size={20} />
+      <div className="card mb-6 flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-4">
+        <div className="flex items-center gap-2 w-full sm:max-w-md">
+          <Search className="text-muted flex-shrink-0" size={20} />
           <input 
             type="text" 
             placeholder="Search by Name, Roll, or Email..." 
@@ -59,9 +59,9 @@ export default function ManageUsers() {
             onChange={(e) => setSearchTerm(e.target.value)}
           />
         </div>
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium text-muted">Role:</span>
-          <select className="form-select" value={filterRole} onChange={e => setFilterRole(e.target.value)}>
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          <span className="text-sm font-medium text-muted flex-shrink-0">Role:</span>
+          <select className="form-select w-full sm:w-auto" value={filterRole} onChange={e => setFilterRole(e.target.value)}>
             <option value="ALL">All Users</option>
             <option value="student">Students</option>
             <option value="teacher">Teachers</option>

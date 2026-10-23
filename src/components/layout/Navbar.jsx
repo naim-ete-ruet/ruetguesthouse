@@ -37,41 +37,41 @@ export default function Navbar({ toggleSidebar }) {
 
   return (
     <header className="navbar flex justify-between items-center" style={{ 
-      padding: 'var(--spacing-4) var(--spacing-6)', 
       backgroundColor: 'var(--color-surface)',
       borderBottom: '1px solid var(--color-border)',
       position: 'sticky',
       top: 0,
       zIndex: 40
     }}>
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-2 sm:gap-4">
         {user && (
-          <button className="md-hidden btn btn-secondary" onClick={toggleSidebar} style={{ padding: '0.5rem' }}>
+          <button className="md-hidden btn btn-secondary" onClick={toggleSidebar} style={{ padding: '0.45rem', minHeight: '36px' }} aria-label="Toggle navigation">
             <Menu size={20} />
           </button>
         )}
         <Link to="/" className="flex items-center gap-2">
           {/* RUET Logo */}
           <img src="/images/ruet-logo.jpg" alt="RUET Logo" style={{ width: '32px', height: '32px', borderRadius: 'var(--radius-sm)', objectFit: 'contain' }} />
-          <span className="font-bold text-lg hidden md:block" style={{ color: 'var(--color-primary)' }}>
+          <span className="font-bold text-base sm:text-lg hidden sm:block" style={{ color: 'var(--color-primary)' }}>
             RUET Guest House
           </span>
         </Link>
       </div>
 
-      <div className="flex items-center gap-4">
-        <button onClick={toggleTheme} className="btn btn-secondary" style={{ padding: '0.5rem', borderRadius: '50%' }}>
-          {theme === 'light' ? <Moon size={20} /> : <Sun size={20} />}
+      <div className="flex items-center gap-2 sm:gap-4">
+        <button onClick={toggleTheme} className="btn btn-secondary" style={{ padding: '0.45rem', minHeight: '36px', borderRadius: '50%' }} aria-label="Toggle theme">
+          {theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}
         </button>
 
         {user ? (
           <div style={{ position: 'relative' }} ref={userDropdownRef}>
             <button 
-              className="flex items-center gap-2 btn btn-secondary hover-scale"
+              className="flex items-center gap-1.5 sm:gap-2 btn btn-secondary hover-scale"
+              style={{ padding: '0.45rem 0.75rem', minHeight: '36px' }}
               onClick={() => setDropdownOpen(!dropdownOpen)}
             >
               <User size={18} />
-              <span className="hidden md:block">{user.name}</span>
+              <span className="hidden sm:block">{user.name}</span>
             </button>
 
             {dropdownOpen && (
@@ -108,11 +108,12 @@ export default function Navbar({ toggleSidebar }) {
             )}
           </div>
         ) : (
-          <div className="flex items-center gap-4">
-            <div className="flex gap-2">
+          <div className="flex items-center gap-2">
+            <div className="flex gap-1.5 sm:gap-2">
               <div style={{ position: 'relative' }} ref={loginDropdownRef}>
                 <button 
-                  className="btn btn-secondary hover-scale flex items-center gap-2"
+                  className="btn btn-secondary hover-scale flex items-center gap-1 sm:gap-2"
+                  style={{ padding: '0.45rem 0.75rem', minHeight: '36px' }}
                   onClick={() => setLoginDropdownOpen(!loginDropdownOpen)}
                 >
                   <User size={18} />
@@ -139,7 +140,7 @@ export default function Navbar({ toggleSidebar }) {
                   </div>
                 )}
               </div>
-              <Link to="/register" className="btn btn-primary hover-scale">Register</Link>
+              <Link to="/register" className="btn btn-primary hover-scale" style={{ padding: '0.45rem 0.85rem', minHeight: '36px' }}>Register</Link>
             </div>
           </div>
         )}

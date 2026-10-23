@@ -25,8 +25,6 @@ export default function Layout() {
         
         <main style={{ 
           flex: 1, 
-          padding: 'var(--spacing-6)', 
-          marginLeft: user ? '0' : '0',
           transition: 'margin var(--transition-normal)'
         }} className={user ? "main-content animate-fade-in" : "animate-fade-in"}>
           <Outlet />
@@ -34,9 +32,19 @@ export default function Layout() {
       </div>
 
       <style>{`
+        .navbar {
+          padding: 0.75rem 1rem;
+        }
+        main {
+          padding: 1rem 0.625rem;
+        }
         @media (min-width: 768px) {
+          .navbar {
+            padding: 1rem 1.5rem;
+          }
           .main-content {
             margin-left: 250px !important;
+            padding: 1.5rem !important;
           }
         }
       `}</style>

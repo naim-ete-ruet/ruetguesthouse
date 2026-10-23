@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { Eye, EyeOff } from 'lucide-react';
+import { API_BASE_URL } from '../../config/api';
 
 export default function Login({ isAdmin = false, isTeacher = false }) {
   const [email, setEmail] = useState('');
@@ -47,44 +48,108 @@ export default function Login({ isAdmin = false, isTeacher = false }) {
     }
   };
 
-  const handleSendOtp = (e) => {
-    e.preventDefault();
+  const resetForgotPasswordFlow = () => {
+    setResetState('none');
+    setResetEmail('');
+    setOtp('');
+    setNewPassword('');
     setResetMessage({ type: '', text: '' });
-    if (!resetEmail.includes('@')) {
+  };
+
+  const openForgotPassword = () => {
+    setResetState('email');
+    setResetEmail('');
+    setOtp('');
+    setNewPassword('');
+    setResetMessage({ type: '', text: '' });
+  };
+
+  const handleSendOtp = async (e) => {
+    if (e) e.preventDefault();
+    setResetMessage({ type: '', text: '' });
+    if (!resetEmail || !resetEmail.includes('@')) {
       setResetMessage({ type: 'error', text: 'Please enter a valid email address.' });
       return;
     }
     setIsLoading(true);
-    setTimeout(() => {
-      setResetState('otp');
-      setResetMessage({ type: 'success', text: `OTP sent to ${resetEmail}.` });
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/auth/send-otp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: resetEmail.trim() })
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setResetState('otp');
+        setOtp('');
+        setNewPassword('');
+        setResetMessage({ type: 'success', text: data.message || `OTP sent to ${resetEmail}. Check your inbox or spam.` });
+      } else {
+        setResetMessage({ type: 'error', text: data.error || 'Failed to send OTP.' });
+      }
+    } catch (err) {
+      setResetMessage({ type: 'error', text: 'Cannot connect to backend server. Please make sure server is running.' });
+    } finally {
       setIsLoading(false);
-    }, 1000);
+    }
   };
 
-  const handleVerifyOtp = (e) => {
+  const handleVerifyOtp = async (e) => {
     e.preventDefault();
     setResetMessage({ type: '', text: '' });
-    if (otp !== '123456') {
-      setResetMessage({ type: 'error', text: 'Invalid OTP. Please try again.' });
+    if (!otp || otp.trim().length !== 6) {
+      setResetMessage({ type: 'error', text: 'Please enter the 6-digit OTP code.' });
       return;
     }
-    setResetState('newPassword');
-    setResetMessage({ type: '', text: '' });
+    setIsLoading(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/auth/verify-otp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: resetEmail.trim(), otp: otp.trim() })
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setResetState('newPassword');
+        setNewPassword('');
+        setResetMessage({ type: 'success', text: 'OTP verified! Enter your new password.' });
+      } else {
+        setResetMessage({ type: 'error', text: data.error || 'Invalid OTP code. Please check and try again.' });
+      }
+    } catch (err) {
+      setResetMessage({ type: 'error', text: 'Failed to verify OTP with server.' });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const handleResetPassword = (e) => {
+  const handleResetPassword = async (e) => {
     e.preventDefault();
+    setResetMessage({ type: '', text: '' });
+    if (newPassword.length < 6) {
+      setResetMessage({ type: 'error', text: 'Password must be at least 6 characters.' });
+      return;
+    }
     setIsLoading(true);
-    setTimeout(() => {
-      setResetState('none');
-      setResetEmail('');
-      setOtp('');
-      setNewPassword('');
-      setError('');
-      alert("Password reset successfully! You can now login with your new password.");
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/auth/reset-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: resetEmail.trim(), otp: otp.trim(), newPassword })
+      });
+      const data = await response.json();
+      if (response.ok) {
+        resetForgotPasswordFlow();
+        setError('');
+        alert("Password reset successfully! You can now login with your new password.");
+      } else {
+        setResetMessage({ type: 'error', text: data.error || 'Failed to reset password.' });
+      }
+    } catch (err) {
+      setResetMessage({ type: 'error', text: 'Failed to connect to the server.' });
+    } finally {
       setIsLoading(false);
-    }, 1000);
+    }
   };
 
   return (
@@ -121,6 +186,7 @@ export default function Login({ isAdmin = false, isTeacher = false }) {
                     id="resetEmail" type="email" className="form-input" 
                     value={resetEmail} onChange={(e) => setResetEmail(e.target.value)}
                     placeholder="name@example.com" required
+                    autoComplete="off"
                   />
                 </div>
                 <button type="submit" className="btn btn-primary w-full mt-4" disabled={isLoading}>
@@ -132,16 +198,34 @@ export default function Login({ isAdmin = false, isTeacher = false }) {
             {resetState === 'otp' && (
               <form onSubmit={handleVerifyOtp}>
                 <div className="form-group">
-                  <label className="form-label" htmlFor="otp">Enter OTP</label>
+                  <label className="form-label" htmlFor="otp">Enter 6-digit OTP</label>
                   <input 
-                    id="otp" type="text" className="form-input" 
-                    value={otp} onChange={(e) => setOtp(e.target.value)}
-                    placeholder="6-digit code" required maxLength="6"
+                    id="otp" 
+                    type="text" 
+                    className="form-input text-center font-bold" 
+                    value={otp} 
+                    onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    placeholder="123456" 
+                    required 
+                    maxLength="6"
+                    autoComplete="off"
+                    style={{ letterSpacing: '6px', fontSize: '1.25rem', textAlign: 'center' }}
                   />
                 </div>
-                <button type="submit" className="btn btn-primary w-full mt-4">
-                  Verify OTP
+                <button type="submit" className="btn btn-primary w-full mt-4" disabled={isLoading || otp.length !== 6}>
+                  {isLoading ? 'Verifying OTP...' : 'Verify OTP'}
                 </button>
+                <div className="mt-4 text-center">
+                  <button 
+                    type="button" 
+                    onClick={handleSendOtp} 
+                    disabled={isLoading}
+                    className="text-primary text-sm font-medium" 
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}
+                  >
+                    Didn't receive code? Resend OTP
+                  </button>
+                </div>
               </form>
             )}
 
@@ -153,6 +237,7 @@ export default function Login({ isAdmin = false, isTeacher = false }) {
                     id="newPassword" type="password" className="form-input" 
                     value={newPassword} onChange={(e) => setNewPassword(e.target.value)}
                     required minLength="6"
+                    autoComplete="new-password"
                   />
                 </div>
                 <button type="submit" className="btn btn-primary w-full mt-4" disabled={isLoading}>
@@ -163,7 +248,7 @@ export default function Login({ isAdmin = false, isTeacher = false }) {
 
             <div className="mt-6 text-center">
               <button 
-                onClick={() => setResetState('none')} 
+                onClick={resetForgotPasswordFlow} 
                 className="btn btn-secondary"
                 style={{ padding: '0.4rem 1rem', fontSize: '0.875rem' }}
               >
@@ -207,7 +292,7 @@ export default function Login({ isAdmin = false, isTeacher = false }) {
                   <label className="form-label" style={{ marginBottom: 0 }} htmlFor="password">Password</label>
                   <button 
                     type="button" 
-                    onClick={() => { setResetState('email'); setResetMessage({type:'', text:''}); }}
+                    onClick={openForgotPassword}
                     className="btn btn-secondary"
                     style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem' }}
                   >

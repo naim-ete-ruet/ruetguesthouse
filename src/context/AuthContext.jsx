@@ -46,8 +46,28 @@ export function AuthProvider({ children }) {
     localStorage.removeItem('user');
   };
 
+  const updateUserProfile = async (updates) => {
+    if (!user?.id) throw new Error("No active user session");
+    const updatedUser = await authService.updateProfile(user.id, updates);
+    const mergedUser = { ...user, ...updatedUser };
+    setUser(mergedUser);
+    localStorage.setItem('user', JSON.stringify(mergedUser));
+    
+    // Notify app-wide components (navbar, sidebar, profile)
+    window.dispatchEvent(new Event('indicatorsChanged'));
+    return mergedUser;
+  };
+
   return (
-    <AuthContext.Provider value={{ user, isLoading, login, register, logout, isAuthenticated: !!user }}>
+    <AuthContext.Provider value={{ 
+      user, 
+      isLoading, 
+      login, 
+      register, 
+      logout, 
+      updateUserProfile, 
+      isAuthenticated: !!user 
+    }}>
       {children}
     </AuthContext.Provider>
   );

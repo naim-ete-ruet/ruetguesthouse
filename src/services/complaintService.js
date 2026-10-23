@@ -61,6 +61,27 @@ export const complaintService = {
       console.error(error);
       throw new Error("Failed to submit complaint");
     }
+
+    try {
+      const { notificationService } = await import('./notificationService');
+      // Notify student
+      await notificationService.createNotification({
+        userId: complaintData.userId,
+        type: 'info',
+        title: 'Complaint Submitted',
+        message: `Your complaint #${newComplaint.id} (${newComplaint.category}) has been submitted and is under review.`,
+        link: '/student/complaints'
+      });
+
+      // Notify admin
+      await notificationService.notifyAdmin({
+        type: 'warning',
+        title: 'New Complaint Received',
+        message: `New complaint #${newComplaint.id} submitted for ${newComplaint.category}.`,
+        link: '/admin/complaints'
+      });
+    } catch (e) {}
+
     return mapComplaint(data);
   },
 
@@ -78,6 +99,19 @@ export const complaintService = {
       console.error(error);
       throw new Error("Failed to update complaint status");
     }
+
+    try {
+      if (data?.user_id) {
+        const { notificationService } = await import('./notificationService');
+        await notificationService.createNotification({
+          userId: data.user_id,
+          type: status === 'Resolved' ? 'success' : 'info',
+          title: `Complaint ${status}`,
+          message: `Your complaint #${complaintId} (${data.category}) status has been updated to "${status}".`,
+          link: '/student/complaints'
+        });
+      }
+    } catch (e) {}
     
     return mapComplaint(data);
   }

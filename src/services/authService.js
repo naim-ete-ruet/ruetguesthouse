@@ -89,5 +89,29 @@ export const authService = {
     }
     
     return data.map(({ password: _, ...u }) => u);
+  },
+
+  async updateProfile(userId, profileData) {
+    const updates = {};
+    if (profileData.name !== undefined) updates.name = String(profileData.name).trim();
+    if (profileData.mobile !== undefined) updates.mobile = String(profileData.mobile).trim();
+    if (profileData.department !== undefined) updates.department = String(profileData.department).trim();
+    if (profileData.designation !== undefined) updates.designation = String(profileData.designation).trim();
+    if (profileData.nid !== undefined) updates.nid = profileData.nid ? String(profileData.nid).trim() : null;
+
+    const { data, error } = await supabase
+      .from('users')
+      .update(updates)
+      .eq('id', userId)
+      .select()
+      .single();
+
+    if (error) {
+      console.error("Supabase updateProfile error:", error);
+      throw new Error(error.message || "Failed to update profile in database");
+    }
+
+    const { password: _, ...sanitizedUser } = data;
+    return sanitizedUser;
   }
 };

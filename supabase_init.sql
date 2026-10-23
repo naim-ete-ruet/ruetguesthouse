@@ -56,7 +56,6 @@ CREATE TABLE public.bookings (
     stay_purpose TEXT,
     assigned_room TEXT REFERENCES public.rooms(room_number),
     approving_teacher_id TEXT REFERENCES public.users(id),
-    signature_image TEXT,
     total_amount INTEGER,
     payment_status TEXT DEFAULT 'PENDING',
     approval_status TEXT DEFAULT 'PENDING_TEACHER_APPROVAL',

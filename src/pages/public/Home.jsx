@@ -7,26 +7,31 @@ export default function Home() {
   return (
     <div className="container">
       {/* Hero Section */}
-      <section className="text-center py-12 mb-12 bg-flow animate-fade-in flex flex-col justify-center items-center" style={{
+      <section className="text-center py-8 sm:py-12 px-4 mb-8 sm:mb-12 bg-flow animate-fade-in flex flex-col justify-center items-center" style={{
         background: 'linear-gradient(135deg, var(--color-primary), #6366F1, var(--color-primary-hover))',
         color: 'white',
         borderRadius: 'var(--radius-lg)',
         boxShadow: 'var(--shadow-lg)',
-        minHeight: '250px'
+        minHeight: '220px'
       }}>
-        <h1 className="text-3xl md:text-4xl font-bold mb-4">RUET Guest House</h1>
-        <p className="mb-12 max-w-2xl mx-auto" style={{ opacity: 0.9 }}>
+        <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-3 sm:mb-4">RUET Guest House</h1>
+        <p className="mb-6 sm:mb-8 max-w-2xl mx-auto text-sm sm:text-base" style={{ opacity: 0.9 }}>
           Welcome to the official guest house booking portal of Rajshahi University of Engineering & Technology.
           Students and faculty can easily book accommodations for their guests.
         </p>
-        <div className="flex justify-center gap-4">
+        <div className="flex flex-wrap justify-center gap-3 sm:gap-4 w-full">
           {user ? (
             <>
               <Link to={user.role === 'admin' ? '/admin/dashboard' : '/student/dashboard'} className="btn btn-outline-light hover-scale">
                 Go to Dashboard
               </Link>
               {user.role === 'student' && (
-                <Link to="/student/booking" className="btn hover-scale" style={{ backgroundColor: 'white', color: 'var(--color-primary)' }}>
+                <Link to="/student/rooms" className="btn hover-scale" style={{ backgroundColor: 'white', color: 'var(--color-primary)' }}>
+                  Book a Room
+                </Link>
+              )}
+              {user.role === 'teacher' && (
+                <Link to="/teacher/rooms" className="btn hover-scale" style={{ backgroundColor: 'white', color: 'var(--color-primary)' }}>
                   Book a Room
                 </Link>
               )}
@@ -42,10 +47,10 @@ export default function Home() {
 
       {/* Overview Section */}
       <section className="mb-8">
-        <h2 className="text-2xl font-bold mb-4 flex items-center gap-2">
+        <h2 className="text-xl sm:text-2xl font-bold mb-4 flex items-center gap-2">
           <HomeIcon className="text-primary" /> Guest House Overview
         </h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
           <div className="card text-center hover-scale animate-stagger-1">
             <h3 className="font-bold mb-2">4 Floors</h3>
             <p className="text-sm text-muted">Including ground floor with office, lobby, waiting room, and prayer room.</p>
@@ -66,13 +71,13 @@ export default function Home() {
       </section>
 
       {/* Rules and Pricing */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-12">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6 mb-8 sm:mb-12">
         {/* Booking Rules Card */}
-        <section className="card hover-scale animate-stagger-1" style={{ padding: '2rem', borderRadius: '12px' }}>
+        <section className="card hover-scale animate-stagger-1" style={{ borderRadius: '12px' }}>
           <h2 className="text-lg font-bold mb-4 flex items-center gap-2">
             <Info className="text-primary" size={20} /> Booking Rules
           </h2>
-          <ul className="flex-col gap-4" style={{ display: 'flex' }}>
+          <ul className="flex-col gap-3 sm:gap-4" style={{ display: 'flex' }}>
             <li className="flex items-start gap-2 text-sm text-text">
               <CheckCircle size={18} className="mt-0.5 flex-shrink-0 text-text" style={{ strokeWidth: 2 }} />
               <span style={{ lineHeight: '1.5' }}><strong>Room Type 3:</strong> Requires administrative approval before payment.</span>
@@ -93,26 +98,26 @@ export default function Home() {
         </section>
 
         {/* Pricing Preview Card */}
-        <section className="card hover-scale animate-stagger-2" style={{ padding: '2rem', borderRadius: '12px' }}>
-          <h2 className="text-lg font-bold mb-6 text-text">Pricing Preview</h2>
-          <div className="flex-col gap-6" style={{ display: 'flex' }}>
+        <section className="card hover-scale animate-stagger-2" style={{ borderRadius: '12px' }}>
+          <h2 className="text-lg font-bold mb-4 text-text">Pricing Preview</h2>
+          <div className="flex-col gap-4 sm:gap-6" style={{ display: 'flex' }}>
 
-            <div className="flex justify-between items-center">
+            <div className="flex justify-between items-center gap-2">
               <div>
                 <h4 className="font-bold text-base mb-1 text-text">Room Type 3</h4>
                 <p className="text-muted text-xs">Single/couple bed, Attached bath, AC</p>
               </div>
-              <div className="text-primary font-bold text-xl">
+              <div className="text-primary font-bold text-lg sm:text-xl flex-shrink-0">
                 ৳200<span className="text-muted font-bold text-xs">/night</span>
               </div>
             </div>
 
-            <div className="flex justify-between items-center">
+            <div className="flex justify-between items-center gap-2">
               <div>
                 <h4 className="font-bold text-base mb-1 text-text">Room Type 4/5/6</h4>
                 <p className="text-muted text-xs">1 or 2 beds (4×7 ft), Non-attached bath, AC</p>
               </div>
-              <div className="text-primary font-bold text-xl">
+              <div className="text-primary font-bold text-lg sm:text-xl flex-shrink-0">
                 ৳150<span className="text-muted font-bold text-xs">/night</span>
               </div>
             </div>

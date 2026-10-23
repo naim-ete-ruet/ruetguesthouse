@@ -18,8 +18,152 @@ const mapRoom = (r) => ({
   roomTypeLabel: getCategoryLabel(r.category)
 });
 
+// Helper to parse date string + time string into a valid Date object
+const parseDateTime = (dateStr, timeStr, defaultTime = '12:00') => {
+  if (!dateStr) return null;
+  const cleanDate = dateStr.trim().split('T')[0];
+  let hours = 12;
+  let minutes = 0;
+  
+  if (timeStr && typeof timeStr === 'string') {
+    const rawTime = timeStr.trim().toLowerCase();
+    const isPM = rawTime.includes('pm');
+    const isAM = rawTime.includes('am');
+    const cleanTime = rawTime.replace(/[^\d:]/g, '');
+    const parts = cleanTime.split(':');
+    if (parts.length >= 1) {
+      hours = parseInt(parts[0], 10) || 0;
+      if (parts.length >= 2) {
+        minutes = parseInt(parts[1], 10) || 0;
+      }
+      if (isPM && hours < 12) hours += 12;
+      if (isAM && hours === 12) hours = 0;
+    }
+  } else if (defaultTime) {
+    const parts = defaultTime.split(':');
+    hours = parseInt(parts[0], 10) || 12;
+    minutes = parseInt(parts[1], 10) || 0;
+  }
+  
+  const d = new Date(cleanDate);
+  d.setHours(hours, minutes, 0, 0);
+  return d;
+};
+
+// Helper to notify other components of room changes
+const notifyRoomsChanged = () => {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event('roomsChanged'));
+    window.dispatchEvent(new Event('indicatorsChanged'));
+  }
+};
+
 export const roomService = {
+  // Synchronize room availability against active bookings and past checkout times
+  async syncRoomAvailability() {
+    try {
+      const [{ data: bookings, error: bErr }, { data: rooms, error: rErr }] = await Promise.all([
+        supabase.from('bookings').select('*'),
+        supabase.from('rooms').select('*')
+      ]);
+
+      if (bErr || rErr || !rooms || !bookings) return;
+
+      const now = new Date();
+      const activeOccupiedRooms = new Set();
+      const expiredBookingIds = [];
+
+      bookings.forEach(b => {
+        // Exclude cancelled or rejected bookings
+        if (
+          b.booking_status === 'CANCELLED' ||
+          b.approval_status === 'CANCELLED' ||
+          b.approval_status === 'REJECTED' ||
+          b.approval_status === 'REJECTED_BY_TEACHER'
+        ) {
+          return;
+        }
+
+        if (!b.assigned_room) return;
+        const isConfirmed = (b.booking_status === 'CONFIRMED' || b.approval_status === 'APPROVED');
+        if (!isConfirmed) return;
+
+        const checkIn = parseDateTime(b.check_in_date, b.check_in_time, '12:00');
+        const checkOut = parseDateTime(b.check_out_date || b.check_in_date, b.check_out_time, '12:00');
+
+        if (checkOut) {
+          if (now < checkOut) {
+            // Booking is NOT expired! The room is occupied/reserved by this booking.
+            activeOccupiedRooms.add(String(b.assigned_room).trim());
+          } else {
+            // Checkout time has passed (now >= checkOut): Booking IS expired.
+            if (b.booking_status === 'CONFIRMED') {
+              expiredBookingIds.push(b.id);
+            }
+          }
+        }
+      });
+
+      const roomsToMakeAvailable = [];
+      const roomsToMakeOccupied = [];
+
+      rooms.forEach(room => {
+        const roomNum = String(room.room_number).trim();
+        // Preserve manual maintenance status
+        if (room.status === 'maintenance') return;
+
+        const shouldBeOccupied = activeOccupiedRooms.has(roomNum);
+
+        if (!shouldBeOccupied && room.status === 'occupied') {
+          roomsToMakeAvailable.push(roomNum);
+        } else if (shouldBeOccupied && room.status !== 'occupied') {
+          roomsToMakeOccupied.push(roomNum);
+        }
+      });
+
+      let changed = false;
+
+      if (roomsToMakeAvailable.length > 0) {
+        const { error } = await supabase
+          .from('rooms')
+          .update({ status: 'available' })
+          .in('room_number', roomsToMakeAvailable);
+        if (!error) changed = true;
+      }
+
+      if (roomsToMakeOccupied.length > 0) {
+        const { error } = await supabase
+          .from('rooms')
+          .update({ status: 'occupied' })
+          .in('room_number', roomsToMakeOccupied);
+        if (!error) changed = true;
+      }
+
+      if (expiredBookingIds.length > 0) {
+        await supabase
+          .from('bookings')
+          .update({ booking_status: 'COMPLETED' })
+          .in('id', expiredBookingIds);
+        changed = true;
+      }
+
+      if (changed) {
+        notifyRoomsChanged();
+      }
+
+      return {
+        roomsMadeAvailable: roomsToMakeAvailable,
+        roomsMadeOccupied: roomsToMakeOccupied
+      };
+    } catch (syncErr) {
+      console.warn("Room sync warning:", syncErr);
+    }
+  },
+
   async getAllRooms() {
+    // Automatically synchronize checkout elapsed rooms on load
+    await this.syncRoomAvailability().catch(() => {});
+
     const { data, error } = await supabase.from('rooms').select('*').order('room_number', { ascending: true });
     if (error) {
       console.error(error);
@@ -45,6 +189,9 @@ export const roomService = {
   },
   
   async getAvailableRooms(category) {
+    // Automatically synchronize checkout elapsed rooms on query
+    await this.syncRoomAvailability().catch(() => {});
+
     let query = supabase.from('rooms').select('*').eq('status', 'available').order('room_number', { ascending: true });
     
     if (category) {
@@ -74,6 +221,7 @@ export const roomService = {
       throw new Error("Failed to update room status");
     }
     
+    notifyRoomsChanged();
     return mapRoom(data);
   },
 
@@ -118,6 +266,7 @@ export const roomService = {
       throw new Error(error.message || "Failed to create room");
     }
 
+    notifyRoomsChanged();
     return mapRoom(data);
   },
 
@@ -175,6 +324,7 @@ export const roomService = {
       }
     }
 
+    notifyRoomsChanged();
     return mapRoom(data);
   },
 
@@ -189,6 +339,18 @@ export const roomService = {
       throw new Error(error.message || "Failed to delete room");
     }
 
+    notifyRoomsChanged();
     return true;
   }
 };
+
+// Automatic client-side background synchronization every 30 seconds
+if (typeof window !== 'undefined') {
+  setTimeout(() => {
+    roomService.syncRoomAvailability().catch(() => {});
+  }, 1000);
+
+  setInterval(() => {
+    roomService.syncRoomAvailability().catch(() => {});
+  }, 30000);
+}

@@ -2,13 +2,14 @@ import { NavLink, useLocation } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { bookingService } from '../../services/bookingService';
+import { notificationService } from '../../services/notificationService';
 import { Home, Calendar, Clock, CreditCard, Bell, Settings, Users, DoorOpen, MessageSquare, Coffee } from 'lucide-react';
 
 export default function Sidebar({ isOpen, closeSidebar }) {
   const { user } = useAuth();
   const location = useLocation();
   const [indicators, setIndicators] = useState({
-    notifications: localStorage.getItem(`hasUnread_${user?.id}`) !== 'false', // Default true unless explicitly false
+    notifications: false,
     payment: false,
     teacherApplications: false,
     adminBookings: false,
@@ -22,6 +23,9 @@ export default function Sidebar({ isOpen, closeSidebar }) {
     
     const fetchIndicators = async () => {
       try {
+        const unreadNotifCount = await notificationService.getUnreadCount(user.id, user.role);
+        const hasUnreadNotifications = unreadNotifCount > 0;
+
         if (user.role === 'admin') {
           const allBookings = await bookingService.getAllBookings();
           const pendingBookings = allBookings.some(b => b.approvalStatus === 'PENDING_ADMIN_APPROVAL');
@@ -34,8 +38,6 @@ export default function Sidebar({ isOpen, closeSidebar }) {
           const allComplaints = await complaintService.getAllComplaints();
           const pendingComplaints = allComplaints.some(c => c.status === 'Open');
 
-          const hasUnreadNotifications = localStorage.getItem(`hasUnread_${user.id}`) !== 'false';
-
           setIndicators(prev => ({
             ...prev,
             notifications: hasUnreadNotifications,
@@ -46,7 +48,7 @@ export default function Sidebar({ isOpen, closeSidebar }) {
           }));
         } else {
           // Guest / Teacher
-          const userBookings = await bookingService.getStudentBookings(user.id);
+          const userBookings = await bookingService.getStudentBookings(user);
           const hasDuePayment = userBookings.some(b => 
             b.paymentStatus === 'PENDING' && 
             b.approvalStatus === 'PENDING_PAYMENT' && 
@@ -60,8 +62,6 @@ export default function Sidebar({ isOpen, closeSidebar }) {
               b.approvingTeacherId === user.id && b.approvalStatus === 'PENDING_TEACHER_APPROVAL' && b.bookingStatus !== 'CANCELLED'
             );
           }
-          
-          const hasUnreadNotifications = localStorage.getItem(`hasUnread_${user.id}`) !== 'false';
 
           setIndicators(prev => ({ 
             ...prev, 
@@ -77,14 +77,15 @@ export default function Sidebar({ isOpen, closeSidebar }) {
     
     fetchIndicators();
     
-    // Listen to custom event for instant updates (e.g., from Notifications page)
+    // Listen to custom events for instant updates
     window.addEventListener('indicatorsChanged', fetchIndicators);
+    window.addEventListener('notificationsChanged', fetchIndicators);
 
-    // In a real app, this would use a WebSocket or interval to keep indicators fresh.
     const interval = setInterval(fetchIndicators, 30000);
     return () => {
       clearInterval(interval);
       window.removeEventListener('indicatorsChanged', fetchIndicators);
+      window.removeEventListener('notificationsChanged', fetchIndicators);
     };
   }, [user, location.pathname]);
 
@@ -122,6 +123,7 @@ export default function Sidebar({ isOpen, closeSidebar }) {
     { to: '/admin/meals', icon: <Coffee size={20} />, label: 'Dining' },
     { to: '/admin/payments', icon: <CreditCard size={20} />, label: 'Payments' },
     { to: '/admin/users', icon: <Users size={20} />, label: 'Users' },
+    { to: '/admin/notifications', icon: <Bell size={20} />, label: 'Notifications' },
     { to: '/admin/complaints', icon: <MessageSquare size={20} />, label: 'Complaints' },
     { to: '/admin/profile', icon: <Settings size={20} />, label: 'Profile' }
   ];
@@ -160,9 +162,8 @@ export default function Sidebar({ isOpen, closeSidebar }) {
       <aside style={{
         position: 'fixed',
         left: 0,
-        top: '73px', // Below navbar
         bottom: 0,
-        width: '250px',
+        width: 'min(260px, 82vw)',
         backgroundColor: 'var(--color-surface)',
         borderRight: '1px solid var(--color-border)',
         transform: isOpen ? 'translateX(0)' : 'translateX(-100%)',
@@ -207,8 +208,15 @@ export default function Sidebar({ isOpen, closeSidebar }) {
 
       {/* Styles for responsive layout applied via global css or inline */}
       <style>{`
+        .sidebar {
+          top: 58px;
+        }
         @media (min-width: 768px) {
-          .sidebar { transform: translateX(0) !important; }
+          .sidebar { 
+            transform: translateX(0) !important; 
+            top: 68px !important;
+            width: 250px !important;
+          }
           .md-hidden { display: none !important; }
         }
       `}</style>

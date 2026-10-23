@@ -115,20 +115,20 @@ export default function ManagePayments() {
         </div>
       </div>
 
-      <div className="card mb-6 flex justify-between items-center">
-        <div className="flex items-center gap-2 w-full max-w-md">
-          <Search className="text-muted" size={20} />
+      <div className="card mb-6 flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-4">
+        <div className="flex items-center gap-2 w-full sm:max-w-md">
+          <Search className="text-muted flex-shrink-0" size={20} />
           <input 
             type="text" 
             placeholder="Search by ID, Name, or Date..." 
-            className="form-input" 
+            className="form-input w-full" 
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
         </div>
-        <div className="flex items-center gap-2">
-          <Filter className="text-muted" size={20} />
-          <select className="form-select" value={filter} onChange={e => setFilter(e.target.value)}>
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          <Filter className="text-muted flex-shrink-0" size={20} />
+          <select className="form-select w-full sm:w-auto" value={filter} onChange={e => setFilter(e.target.value)}>
             <option value="ALL">All Transactions</option>
             <option value="PAID">Paid</option>
             <option value="PENDING">Pending</option>

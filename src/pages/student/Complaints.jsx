@@ -71,11 +71,11 @@ export default function Complaints() {
 
   return (
     <div className="container">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold">My Complaints</h1>
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+        <h1 className="text-xl sm:text-2xl font-bold">My Complaints</h1>
         <button 
           onClick={() => setShowForm(!showForm)} 
-          className="btn btn-primary flex items-center gap-2"
+          className="btn btn-primary flex items-center justify-center gap-2 w-full sm:w-auto"
         >
           <Plus size={18} /> {showForm ? 'Cancel' : 'New Complaint'}
         </button>

@@ -31,48 +31,198 @@ const transporter = nodemailer.createTransport({
   }
 });
 
-// Forgot Password API Endpoint
-app.post('/api/auth/forgot-password', async (req, res) => {
-  const { email } = req.body;
-  
-  if (!email) {
-    return res.status(400).json({ error: 'Email is required' });
+// Endpoint to query current Supabase database / server timestamp
+app.get('/api/database-time', async (req, res) => {
+  try {
+    const response = await fetch(`${supabaseUrl}/rest/v1/`, {
+      method: 'HEAD',
+      headers: { apikey: supabaseKey }
+    });
+    const dateHeader = response.headers.get('date');
+    const dbDate = dateHeader ? new Date(dateHeader) : new Date();
+    res.json({
+      timestamp: dbDate.toISOString(),
+      dateString: dbDate.toString()
+    });
+  } catch (err) {
+    console.error("Error retrieving Supabase server time:", err);
+    res.json({
+      timestamp: new Date().toISOString(),
+      dateString: new Date().toString()
+    });
+  }
+});
+
+// In-memory OTP storage: email -> { otp, expiresAt, verified }
+const otpStore = new Map();
+
+// Helper to send OTP email
+async function sendOtpEmail(email) {
+  const normalizedEmail = email.trim().toLowerCase();
+
+  // Check if user exists in Supabase
+  const { data: user, error: dbError } = await supabase
+    .from('users')
+    .select('id, name, email')
+    .eq('email', normalizedEmail)
+    .maybeSingle();
+
+  if (dbError) {
+    console.error('Supabase user lookup error:', dbError);
+    throw new Error('Database lookup failed');
   }
 
-  // In a real app, you would verify if the user exists in Supabase here
-  // and generate a unique secure reset token.
-  // For this demo, we'll send a direct placeholder link.
-  
-  const resetLink = `${FRONTEND_URL}/reset-password?email=${encodeURIComponent(email)}`;
+  if (!user) {
+    const notFoundError = new Error('No registered account found with this email address.');
+    notFoundError.statusCode = 404;
+    throw notFoundError;
+  }
+
+  // Generate secure 6-digit OTP
+  const otp = Math.floor(100000 + Math.random() * 900000).toString();
+  const expiresAt = Date.now() + 10 * 60 * 1000; // 10 minutes
+
+  otpStore.set(normalizedEmail, {
+    otp,
+    expiresAt,
+    verified: false
+  });
 
   const mailOptions = {
     from: `"RUET Guest House" <${process.env.EMAIL_USER}>`,
-    to: email,
-    subject: 'Password Reset Request',
-    text: `Hello,\n\nWe received a request to reset your password for the RUET Guest House portal.\n\nPlease copy and paste the following link into your browser to reset your password:\n${resetLink}\n\nIf you didn't request this, you can safely ignore this email.`,
+    to: normalizedEmail,
+    subject: `RUET Guest House - Your Password Reset OTP: ${otp}`,
+    text: `Hello ${user.name || 'User'},\n\nYour One-Time Password (OTP) to reset your RUET Guest House account password is: ${otp}\n\nThis OTP is valid for 10 minutes.\n\nIf you did not request this, please ignore this email.`,
     html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e5e7eb; border-radius: 8px;">
-        <h2 style="color: #1f2937;">Password Reset Request</h2>
-        <p style="color: #4b5563;">Hello,</p>
-        <p style="color: #4b5563;">We received a request to reset your password for the RUET Guest House portal.</p>
-        <p style="color: #4b5563;">Click the button below to reset your password:</p>
-        <div style="margin: 30px 0;">
-          <a href="${resetLink}" style="display: inline-block; padding: 12px 24px; background-color: #3B82F6; color: white; text-decoration: none; border-radius: 6px; font-weight: bold;">Reset Password</a>
+      <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 24px; border: 1px solid #e5e7eb; border-radius: 10px; background-color: #ffffff;">
+        <div style="text-align: center; margin-bottom: 20px;">
+          <h2 style="color: #1e3a8a; margin: 0; font-size: 22px;">RUET Guest House</h2>
+          <p style="color: #6b7280; font-size: 13px; margin-top: 4px;">Rajshahi University of Engineering & Technology</p>
         </div>
-        <p style="color: #4b5563; font-size: 14px;">If the button doesn't work, you can copy and paste this link into your browser:</p>
-        <p style="color: #6b7280; font-size: 12px; word-break: break-all;">${resetLink}</p>
-        <hr style="border: 0; border-top: 1px solid #e5e7eb; margin: 20px 0;" />
-        <p style="color: #9ca3af; font-size: 12px;">If you didn't request this, you can safely ignore this email.</p>
+        <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 16px 0;" />
+        <h3 style="color: #1f2937; margin-top: 0; font-size: 18px;">Password Reset Verification Code</h3>
+        <p style="color: #4b5563; font-size: 14px; line-height: 1.5;">Hello <strong>${user.name || 'User'}</strong>,</p>
+        <p style="color: #4b5563; font-size: 14px; line-height: 1.5;">We received a request to reset your account password. Please use the following 6-digit One-Time Password (OTP) to continue:</p>
+        <div style="background-color: #eff6ff; border: 2px dashed #3b82f6; border-radius: 8px; padding: 18px; text-align: center; margin: 24px 0;">
+          <span style="font-size: 34px; font-weight: 800; letter-spacing: 8px; color: #1e3a8a;">${otp}</span>
+        </div>
+        <p style="color: #dc2626; font-size: 13px; margin-bottom: 20px;">* This code will expire in <strong>10 minutes</strong>. Do not share this code with anyone.</p>
+        <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 16px 0;" />
+        <p style="color: #9ca3af; font-size: 12px; margin: 0; text-align: center;">If you did not make this request, you can safely ignore this email.</p>
       </div>
     `
   };
 
+  await transporter.sendMail(mailOptions);
+  console.log(`[OTP] Sent password reset OTP to ${normalizedEmail}`);
+  return { otp, user };
+}
+
+// 1. Send OTP Endpoint
+app.post('/api/auth/send-otp', async (req, res) => {
+  const { email } = req.body;
+  if (!email || !email.trim()) {
+    return res.status(400).json({ error: 'Email is required' });
+  }
+
   try {
-    await transporter.sendMail(mailOptions);
-    res.json({ message: 'Password reset link sent to your email.' });
+    await sendOtpEmail(email);
+    return res.json({ success: true, message: `OTP sent to ${email.trim()}. Check your inbox or spam.` });
   } catch (error) {
-    console.error("Nodemailer error:", error);
-    res.status(500).json({ error: 'Failed to send email. Check your SMTP configuration in .env' });
+    console.error('[OTP Error]:', error);
+    if (error.statusCode === 404) {
+      return res.status(404).json({ error: error.message });
+    }
+    return res.status(500).json({ error: 'Failed to send OTP email. Please verify SMTP settings.' });
+  }
+});
+
+// Backward-compatible Forgot Password Endpoint (sends OTP directly)
+app.post('/api/auth/forgot-password', async (req, res) => {
+  const { email } = req.body;
+  if (!email || !email.trim()) {
+    return res.status(400).json({ error: 'Email is required' });
+  }
+
+  try {
+    await sendOtpEmail(email);
+    return res.json({ success: true, message: `Password reset OTP sent to ${email.trim()}. Check your inbox or spam.` });
+  } catch (error) {
+    console.error('[Forgot Password Error]:', error);
+    if (error.statusCode === 404) {
+      return res.status(404).json({ error: error.message });
+    }
+    return res.status(500).json({ error: 'Failed to send reset email. Please try again later.' });
+  }
+});
+
+// 2. Verify OTP Endpoint
+app.post('/api/auth/verify-otp', (req, res) => {
+  const { email, otp } = req.body;
+  if (!email || !otp) {
+    return res.status(400).json({ error: 'Email and OTP code are required.' });
+  }
+
+  const normalizedEmail = email.trim().toLowerCase();
+  const stored = otpStore.get(normalizedEmail);
+
+  if (!stored) {
+    return res.status(400).json({ error: 'No OTP request found for this email. Please request a new code.' });
+  }
+
+  if (Date.now() > stored.expiresAt) {
+    otpStore.delete(normalizedEmail);
+    return res.status(400).json({ error: 'OTP has expired. Please request a new one.' });
+  }
+
+  if (stored.otp !== otp.trim()) {
+    return res.status(400).json({ error: 'Invalid OTP code. Please enter the correct 6-digit code.' });
+  }
+
+  stored.verified = true;
+  return res.json({ success: true, message: 'OTP verified successfully.' });
+});
+
+// 3. Reset Password with Verified OTP Endpoint
+app.post('/api/auth/reset-password', async (req, res) => {
+  const { email, otp, newPassword } = req.body;
+  if (!email || !otp || !newPassword) {
+    return res.status(400).json({ error: 'Email, OTP, and new password are required.' });
+  }
+
+  if (newPassword.length < 6) {
+    return res.status(400).json({ error: 'New password must be at least 6 characters.' });
+  }
+
+  const normalizedEmail = email.trim().toLowerCase();
+  const stored = otpStore.get(normalizedEmail);
+
+  if (!stored || stored.otp !== otp.trim() || !stored.verified) {
+    return res.status(400).json({ error: 'Please verify the OTP code before resetting password.' });
+  }
+
+  if (Date.now() > stored.expiresAt) {
+    otpStore.delete(normalizedEmail);
+    return res.status(400).json({ error: 'OTP has expired. Please request a new one.' });
+  }
+
+  try {
+    const { error: updateError } = await supabase
+      .from('users')
+      .update({ password: newPassword })
+      .eq('email', normalizedEmail);
+
+    if (updateError) {
+      console.error('Supabase password reset update error:', updateError);
+      return res.status(500).json({ error: 'Failed to update password in database.' });
+    }
+
+    otpStore.delete(normalizedEmail);
+    console.log(`[Password Reset] Password updated successfully in database for ${normalizedEmail}`);
+    return res.json({ success: true, message: 'Password has been reset successfully. You can now login.' });
+  } catch (error) {
+    console.error('Password reset exception:', error);
+    return res.status(500).json({ error: 'Internal server error while resetting password.' });
   }
 });
 
@@ -259,21 +409,77 @@ app.all('/api/payment/success', async (req, res) => {
 
   try {
     if (type === 'booking') {
-      await supabase
+      const { data: bData } = await supabase
         .from('bookings')
         .update({ payment_status: 'COMPLETED', booking_status: 'CONFIRMED', approval_status: 'PENDING_APPROVAL' })
-        .eq('id', ref);
+        .eq('id', ref)
+        .select('*')
+        .maybeSingle();
+
+      const studentId = bData?.user_id;
+      if (studentId) {
+        await supabase.from('notifications').insert({
+          id: `NOTIF-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+          user_id: studentId,
+          type: 'success',
+          title: 'Payment Received',
+          message: `Your payment of ৳${amount || transactions[ref]?.amount || ''} for booking ${ref} was successful.`,
+          link: `/${role}/history`,
+          read: false,
+          created_at: new Date().toISOString()
+        });
+      }
+
+      // Notify admin
+      await supabase.from('notifications').insert({
+        id: `NOTIF-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        user_id: 'admin_1',
+        type: 'success',
+        title: 'Online Payment Confirmed',
+        message: `Online payment of ৳${amount || transactions[ref]?.amount || ''} received for booking ${ref} (${bData?.applicant_name || 'Guest'}).`,
+        link: '/admin/payments',
+        read: false,
+        created_at: new Date().toISOString()
+      });
     } else if (type === 'meal') {
-      await supabase
+      const { data: mData } = await supabase
         .from('meals')
-        .update({ payment_status: 'COMPLETED', status: 'CONFIRMED' })
-        .eq('id', ref);
+        .update({ payment_status: 'COMPLETED', status: 'PAID' })
+        .eq('id', ref)
+        .select('*')
+        .maybeSingle();
+
+      const studentId = mData?.user_id;
+      if (studentId) {
+        await supabase.from('notifications').insert({
+          id: `NOTIF-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+          user_id: studentId,
+          type: 'success',
+          title: 'Meal Payment Received',
+          message: `Your payment for meal request #${ref} was successful.`,
+          link: `/${role}/meals`,
+          read: false,
+          created_at: new Date().toISOString()
+        });
+      }
+
+      // Notify admin
+      await supabase.from('notifications').insert({
+        id: `NOTIF-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        user_id: 'admin_1',
+        type: 'success',
+        title: 'Meal Payment Confirmed',
+        message: `Online payment received for meal #${ref} (${mData?.applicant_name || 'Guest'}).`,
+        link: '/admin/meals',
+        read: false,
+        created_at: new Date().toISOString()
+      });
     }
   } catch (error) {
     console.error("Supabase update error:", error);
   }
 
-  res.redirect(`${FRONTEND_URL}/${role}/booking-success?ref=${ref}`);
+  res.redirect(`${FRONTEND_URL}/${role}/booking-success?ref=${ref}&type=${type}`);
 });
 
 app.all('/api/payment/fail', (req, res) => {
@@ -286,38 +492,57 @@ app.all('/api/payment/cancel', (req, res) => {
   res.redirect(`${FRONTEND_URL}/${role}/payment?payment=cancel`);
 });
 
-// Refund Endpoint - Initiates refund with SSLCommerz and updates Supabase
+// Refund Endpoint - Initiates refund with SSLCommerz and updates Supabase for Bookings & Meals
 app.post('/api/payment/refund', async (req, res) => {
   try {
-    const { bookingId, invoiceNumber, amount, reason, bankTranId } = req.body;
-    if (!bookingId && !invoiceNumber && !bankTranId) {
-      return res.status(400).json({ error: 'bookingId or invoiceNumber is required' });
+    const { bookingId, mealId, invoiceNumber, amount, reason, bankTranId } = req.body;
+    const targetMealId = mealId || (bookingId && bookingId.startsWith('MEAL-') ? bookingId : null);
+    const targetBookingId = (!targetMealId && bookingId && !bookingId.startsWith('MEAL-')) ? bookingId : null;
+
+    if (!targetBookingId && !targetMealId && !invoiceNumber && !bankTranId) {
+      return res.status(400).json({ error: 'bookingId, mealId, or invoiceNumber is required' });
     }
 
-    console.log(`[Refund Requested] bookingId: ${bookingId}, invoiceNumber: ${invoiceNumber}, amount: ${amount}, reason: ${reason}`);
+    console.log(`[Refund Requested] bookingId: ${bookingId}, mealId: ${mealId}, targetMealId: ${targetMealId}, targetBookingId: ${targetBookingId}, amount: ${amount}, reason: ${reason}`);
 
-    // 1. Fetch booking details from Supabase if bookingId is provided
     let booking = null;
-    if (bookingId) {
+    let meal = null;
+
+    if (targetBookingId) {
       const { data, error: bError } = await supabase
         .from('bookings')
         .select('*')
-        .eq('id', bookingId)
+        .eq('id', targetBookingId)
         .maybeSingle();
       if (!bError && data) booking = data;
+    } else if (targetMealId) {
+      const { data, error: mError } = await supabase
+        .from('meals')
+        .select('*')
+        .eq('id', targetMealId)
+        .maybeSingle();
+      if (!mError && data) meal = data;
+
+      if (meal && (meal.status === 'APPROVED' || meal.status === 'SERVED')) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'Approved meals cannot be refunded.' 
+        });
+      }
     }
 
-    const refundAmount = Number(amount || booking?.total_amount || 0);
+    const targetRef = targetMealId || targetBookingId;
+    const refundAmount = Number(amount || meal?.total_amount || booking?.total_amount || 0);
     const transactions = loadTransactions();
-    const tx = (bookingId && transactions[bookingId]) || {};
+    const tx = (targetRef && transactions[targetRef]) || {};
 
     let resolvedBankTranId = bankTranId || invoiceNumber || tx.bankTranId || tx.invoiceNumber;
 
-    // If bankTranId is missing, attempt querying SSLCommerz by tranId or bookingId
-    if (!resolvedBankTranId && (tx.tranId || bookingId)) {
+    // If bankTranId is missing, attempt querying SSLCommerz by tranId or reference
+    if (!resolvedBankTranId && (tx.tranId || targetRef)) {
       try {
         const sslcz = new SSLCommerzPayment(store_id, store_passwd, is_live);
-        const searchId = tx.tranId || bookingId;
+        const searchId = tx.tranId || targetRef;
         const qRes = await sslcz.transactionQueryByTransactionId({ tran_id: searchId });
         if (qRes?.element && qRes.element[0]?.bank_tran_id && qRes.element[0]?.status !== 'INVALID') {
           resolvedBankTranId = qRes.element[0].bank_tran_id;
@@ -338,9 +563,9 @@ app.post('/api/payment/refund', async (req, res) => {
         const sslcz = new SSLCommerzPayment(store_id, store_passwd, is_live);
         const refundPayload = {
           refund_amount: refundAmount,
-          refund_remarks: reason || 'Booking cancellation refund',
+          refund_remarks: reason || (targetMealId ? 'Meal cancellation refund' : 'Booking cancellation refund'),
           bank_tran_id: resolvedBankTranId,
-          refe_id: `REF_${bookingId}_${Date.now()}`
+          refe_id: `REF_${targetRef}_${Date.now()}`
         };
 
         console.log(`[SSLCommerz initiateRefund Sending]`, refundPayload);
@@ -361,11 +586,50 @@ app.post('/api/payment/refund', async (req, res) => {
         console.error("SSLCommerz refund exception:", refundErr);
       }
     } else {
-      console.warn(`[Refund] Bank transaction ID not found for ${bookingId}. Marking cancelled in RUET Guest House system.`);
+      console.warn(`[Refund] Bank transaction ID not found for ${targetRef}. Marking refunded in RUET Guest House system.`);
     }
 
-    // 3. Update Supabase: paymentStatus -> REFUNDED, bookingStatus -> CANCELLED
-    if (bookingId) {
+    // 3. Update Supabase and send notifications
+    if (targetMealId) {
+      // Meal Refund in Supabase
+      await supabase
+        .from('meals')
+        .update({
+          status: 'REFUNDED',
+          payment_status: 'REFUNDED'
+        })
+        .eq('id', targetMealId);
+
+      try {
+        await supabase.from('notifications').insert({
+          id: `NOTIF-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+          user_id: 'admin_1',
+          type: 'warning',
+          title: 'Meal Order Refunded',
+          message: `Meal #${targetMealId} (${meal?.applicant_name || 'Guest'}) has been cancelled and refunded ৳${refundAmount}.`,
+          link: '/admin/meals',
+          read: false,
+          created_at: new Date().toISOString()
+        });
+
+        if (meal?.user_id) {
+          const userRole = meal.user_role === 'teacher' ? 'teacher' : 'student';
+          await supabase.from('notifications').insert({
+            id: `NOTIF-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+            user_id: meal.user_id,
+            type: 'warning',
+            title: 'Meal Cancelled & Refunded',
+            message: `Your meal request #${targetMealId} (${meal.meal_type}) has been cancelled and refund of ৳${refundAmount} has been processed.`,
+            link: `/${userRole}/meals`,
+            read: false,
+            created_at: new Date().toISOString()
+          });
+        }
+      } catch (notifErr) {
+        console.warn("Meal refund notification error:", notifErr);
+      }
+    } else if (targetBookingId) {
+      // Booking Refund in Supabase
       await supabase
         .from('bookings')
         .update({
@@ -373,14 +637,43 @@ app.post('/api/payment/refund', async (req, res) => {
           approval_status: 'CANCELLED',
           payment_status: 'REFUNDED'
         })
-        .eq('id', bookingId);
+        .eq('id', targetBookingId);
 
-      // 4. Free up room if assigned
+      // Free up room if assigned
       if (booking?.assigned_room) {
         await supabase
           .from('rooms')
           .update({ status: 'available' })
           .eq('room_number', booking.assigned_room);
+      }
+
+      // Create notifications for admin and user
+      try {
+        await supabase.from('notifications').insert({
+          id: `NOTIF-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+          user_id: 'admin_1',
+          type: 'warning',
+          title: 'Booking Refunded & Cancelled',
+          message: `Booking ${targetBookingId} (${booking?.applicant_name || 'Guest'}) has been cancelled and refunded ৳${refundAmount}.`,
+          link: '/admin/bookings',
+          read: false,
+          created_at: new Date().toISOString()
+        });
+
+        if (booking?.user_id) {
+          await supabase.from('notifications').insert({
+            id: `NOTIF-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+            user_id: booking.user_id,
+            type: 'warning',
+            title: 'Booking Cancelled & Refunded',
+            message: `Your booking ${targetBookingId} has been cancelled and refund of ৳${refundAmount} has been processed.`,
+            link: '/student/history',
+            read: false,
+            created_at: new Date().toISOString()
+          });
+        }
+      } catch (notifErr) {
+        console.warn("Refund notification error:", notifErr);
       }
     }
 
@@ -389,7 +682,7 @@ app.post('/api/payment/refund', async (req, res) => {
       refundedInSSLCommerz: sslRefundSuccess,
       message: sslRefundSuccess
         ? `Refund of ৳${refundAmount} has been successfully processed with SSLCommerz.`
-        : `Booking cancelled and marked as refunded (SSLCommerz note: ${sslRefundResult?.errorReason || (resolvedBankTranId ? 'Processed' : 'Bank transaction ID pending')}).`,
+        : `${targetMealId ? 'Meal' : 'Booking'} marked as refunded (SSLCommerz note: ${sslRefundResult?.errorReason || (resolvedBankTranId ? 'Processed' : 'Bank transaction ID pending')}).`,
       refundResult: sslRefundResult
     });
   } catch (err) {
@@ -448,6 +741,34 @@ app.post('/api/payment/verify-cash', async (req, res) => {
     };
     saveTransactions(transactions);
 
+    // 4. Create notifications for student and admin
+    try {
+      if (booking?.user_id) {
+        await supabase.from('notifications').insert({
+          id: `NOTIF-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+          user_id: booking.user_id,
+          type: 'success',
+          title: 'Cash Payment Verified',
+          message: `Your cash payment for booking ${bookingId} has been verified and confirmed.`,
+          link: '/student/history',
+          read: false,
+          created_at: new Date().toISOString()
+        });
+      }
+      await supabase.from('notifications').insert({
+        id: `NOTIF-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        user_id: 'admin_1',
+        type: 'success',
+        title: 'Cash Payment Verified',
+        message: `Cash payment for booking ${bookingId} (${booking?.applicant_name || 'Guest'}) has been verified.`,
+        link: '/admin/payments',
+        read: false,
+        created_at: new Date().toISOString()
+      });
+    } catch (notifErr) {
+      console.warn("Cash verify notification error:", notifErr);
+    }
+
     return res.json({
       success: true,
       message: `Booking ${bookingId} marked as verified and paid via Cash.`,
@@ -459,6 +780,138 @@ app.post('/api/payment/verify-cash', async (req, res) => {
   }
 });
 
+// Helper to parse date string + time string into a valid Date object
+function parseDateTime(dateStr, timeStr, defaultTime = '12:00') {
+  if (!dateStr) return null;
+  const cleanDate = dateStr.trim().split('T')[0];
+  let hours = 12;
+  let minutes = 0;
+  
+  if (timeStr && typeof timeStr === 'string') {
+    const rawTime = timeStr.trim().toLowerCase();
+    const isPM = rawTime.includes('pm');
+    const isAM = rawTime.includes('am');
+    const cleanTime = rawTime.replace(/[^\d:]/g, '');
+    const parts = cleanTime.split(':');
+    if (parts.length >= 1) {
+      hours = parseInt(parts[0], 10) || 0;
+      if (parts.length >= 2) {
+        minutes = parseInt(parts[1], 10) || 0;
+      }
+      if (isPM && hours < 12) hours += 12;
+      if (isAM && hours === 12) hours = 0;
+    }
+  } else if (defaultTime) {
+    const parts = defaultTime.split(':');
+    hours = parseInt(parts[0], 10) || 12;
+    minutes = parseInt(parts[1], 10) || 0;
+  }
+  
+  const d = new Date(cleanDate);
+  d.setHours(hours, minutes, 0, 0);
+  return d;
+}
+
+// Room synchronization engine: checks active stays vs checkout times
+async function syncRoomAvailability() {
+  try {
+    const { data: bookings, error: bErr } = await supabase.from('bookings').select('*');
+    const { data: rooms, error: rErr } = await supabase.from('rooms').select('*');
+
+    if (bErr || rErr || !rooms || !bookings) return;
+
+    const now = new Date();
+    const activeOccupiedRooms = new Set();
+    const expiredBookingIds = [];
+
+    bookings.forEach(b => {
+      // Exclude cancelled or rejected bookings
+      if (
+        b.booking_status === 'CANCELLED' ||
+        b.approval_status === 'CANCELLED' ||
+        b.approval_status === 'REJECTED' ||
+        b.approval_status === 'REJECTED_BY_TEACHER'
+      ) {
+        return;
+      }
+
+      if (!b.assigned_room) return;
+      const isConfirmed = (b.booking_status === 'CONFIRMED' || b.approval_status === 'APPROVED');
+      if (!isConfirmed) return;
+
+      const checkIn = parseDateTime(b.check_in_date, b.check_in_time, '12:00');
+      const checkOut = parseDateTime(b.check_out_date || b.check_in_date, b.check_out_time, '12:00');
+
+      if (checkOut) {
+        if (now < checkOut) {
+          // Booking is NOT expired! The room is occupied/reserved by this booking.
+          activeOccupiedRooms.add(String(b.assigned_room).trim());
+        } else {
+          // Checkout time has elapsed (now >= checkOut): Booking IS expired.
+          if (b.booking_status === 'CONFIRMED') {
+            expiredBookingIds.push(b.id);
+          }
+        }
+      }
+    });
+
+    const roomsToMakeAvailable = [];
+    const roomsToMakeOccupied = [];
+
+    rooms.forEach(room => {
+      const roomNum = String(room.room_number).trim();
+      // Preserve manual maintenance status
+      if (room.status === 'maintenance') return;
+
+      const shouldBeOccupied = activeOccupiedRooms.has(roomNum);
+
+      if (!shouldBeOccupied && room.status === 'occupied') {
+        roomsToMakeAvailable.push(roomNum);
+      } else if (shouldBeOccupied && room.status !== 'occupied') {
+        roomsToMakeOccupied.push(roomNum);
+      }
+    });
+
+    if (roomsToMakeAvailable.length > 0) {
+      console.log(`[Auto-Sync] Check-out elapsed. Making rooms available:`, roomsToMakeAvailable);
+      await supabase
+        .from('rooms')
+        .update({ status: 'available' })
+        .in('room_number', roomsToMakeAvailable);
+    }
+
+    if (roomsToMakeOccupied.length > 0) {
+      console.log(`[Auto-Sync] Active check-in reached. Making rooms occupied:`, roomsToMakeOccupied);
+      await supabase
+        .from('rooms')
+        .update({ status: 'occupied' })
+        .in('room_number', roomsToMakeOccupied);
+    }
+
+    if (expiredBookingIds.length > 0) {
+      await supabase
+        .from('bookings')
+        .update({ booking_status: 'COMPLETED' })
+        .in('id', expiredBookingIds);
+    }
+
+    return {
+      syncedAt: now.toISOString(),
+      roomsMadeAvailable: roomsToMakeAvailable,
+      roomsMadeOccupied: roomsToMakeOccupied,
+      expiredBookings: expiredBookingIds
+    };
+  } catch (err) {
+    console.error("[Auto-Sync Error]", err);
+  }
+}
+
+// Room synchronization endpoint
+app.all('/api/rooms/sync-availability', async (req, res) => {
+  const result = await syncRoomAvailability();
+  res.json({ success: true, result });
+});
+
 // Transaction query endpoint
 app.get('/api/payment/transactions', (req, res) => {
   res.json(loadTransactions());
@@ -467,4 +920,7 @@ app.get('/api/payment/transactions', (req, res) => {
 const PORT = 5000;
 app.listen(PORT, () => {
   console.log(`SSLCommerz Backend running on http://localhost:${PORT}`);
+  // Initial sync on launch & recurring every 30 seconds
+  syncRoomAvailability();
+  setInterval(syncRoomAvailability, 30000);
 });

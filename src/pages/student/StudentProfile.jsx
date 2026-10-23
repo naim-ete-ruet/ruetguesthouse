@@ -1,39 +1,104 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { authService } from '../../services/authService';
-import { User, Mail, Phone, Book, Lock, Edit3, Save } from 'lucide-react';
+import { bookingService } from '../../services/bookingService';
+import { User, Mail, Phone, Book, Lock, Edit3, Save, X, Briefcase, CheckCircle, AlertCircle } from 'lucide-react';
 import { API_BASE_URL } from '../../config/api';
 
 export default function StudentProfile() {
-  const { user } = useAuth();
+  const { user, updateUserProfile } = useAuth();
   
   const [isEditing, setIsEditing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [feedback, setFeedback] = useState(null); // { type: 'success' | 'error', message: '' }
   const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [passwordForm, setPasswordForm] = useState({ current: '', new: '', confirm: '' });
+  const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
+  const [stats, setStats] = useState({ total: 0, active: 0 });
+
   const [profileData, setProfileData] = useState({
-    name: user?.name || 'User Name',
-    email: user?.email || 'user@ruet.ac.bd',
-    mobile: user?.mobile || '+8801XXXXXXX',
-    department: user?.department ? user.department.toUpperCase() : 'Not Assigned',
-    rollNumber: user?.role === 'teacher' ? user.id : (user?.rollNo || 'N/A')
+    name: user?.name || '',
+    email: user?.email || '',
+    mobile: user?.mobile || '',
+    department: user?.department ? user.department.toUpperCase() : '',
+    designation: user?.designation || (user?.role === 'teacher' ? 'Faculty Member' : 'Student'),
+    rollNumber: user?.role === 'teacher' ? user?.id : (user?.rollNo || user?.nid || 'N/A')
   });
 
-  const handleSave = () => {
-    setIsEditing(false);
-    // In a real app, you would make an API call here to save changes
-    alert("Profile updated successfully!");
+  useEffect(() => {
+    if (user) {
+      setProfileData({
+        name: user.name || '',
+        email: user.email || '',
+        mobile: user.mobile || '',
+        department: user.department ? user.department.toUpperCase() : '',
+        designation: user.designation || (user.role === 'teacher' ? 'Faculty Member' : 'Student'),
+        rollNumber: user.role === 'teacher' ? user.id : (user.rollNo || user.nid || 'N/A')
+      });
+      
+      bookingService.getStudentBookings(user)
+        .then(bookings => {
+          setStats({
+            total: bookings.length,
+            active: bookings.filter(b => b.bookingStatus === 'CONFIRMED' || b.bookingStatus === 'PENDING').length
+          });
+        })
+        .catch(err => console.error("Failed to load user booking stats:", err));
+    }
+  }, [user]);
+
+  const showNotification = (type, message) => {
+    setFeedback({ type, message });
+    setTimeout(() => setFeedback(null), 4000);
   };
 
-  const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
+  const handleSave = async (e) => {
+    if (e) e.preventDefault();
+    if (!profileData.name.trim()) {
+      showNotification('error', 'Full Name is required.');
+      return;
+    }
+
+    try {
+      setIsSaving(true);
+      await updateUserProfile({
+        name: profileData.name,
+        mobile: profileData.mobile,
+        department: profileData.department,
+        designation: profileData.designation
+      });
+      setIsEditing(false);
+      showNotification('success', 'Profile updated successfully in Supabase database!');
+    } catch (err) {
+      console.error("Profile update error:", err);
+      showNotification('error', err.message || 'Failed to update profile. Please try again.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleCancelEdit = () => {
+    setIsEditing(false);
+    if (user) {
+      setProfileData({
+        name: user.name || '',
+        email: user.email || '',
+        mobile: user.mobile || '',
+        department: user.department ? user.department.toUpperCase() : '',
+        designation: user.designation || (user.role === 'teacher' ? 'Faculty Member' : 'Student'),
+        rollNumber: user.role === 'teacher' ? user.id : (user.rollNo || user.nid || 'N/A')
+      });
+    }
+  };
 
   const handlePasswordChange = async (e) => {
     e.preventDefault();
     if (passwordForm.new !== passwordForm.confirm) {
-      alert("New passwords do not match!");
+      showNotification('error', "New passwords do not match!");
       return;
     }
     if (passwordForm.new.length < 6) {
-      alert("Password must be at least 6 characters.");
+      showNotification('error', "Password must be at least 6 characters.");
       return;
     }
     
@@ -42,9 +107,9 @@ export default function StudentProfile() {
       await authService.changePassword(user.id, passwordForm.current, passwordForm.new);
       setIsChangingPassword(false);
       setPasswordForm({ current: '', new: '', confirm: '' });
-      alert("Password changed successfully! Next time you login, use your new password.");
+      showNotification('success', "Password updated successfully in Supabase database!");
     } catch (err) {
-      alert(err.message || "Failed to change password. Please check your current password.");
+      showNotification('error', err.message || "Failed to change password. Please check your current password.");
     } finally {
       setIsUpdatingPassword(false);
     }
@@ -54,10 +119,25 @@ export default function StudentProfile() {
     <div className="container" style={{ maxWidth: '900px' }}>
       <h1 className="text-2xl font-bold mb-6">{user?.role === 'teacher' ? 'Teacher Profile' : 'Guest Profile'}</h1>
 
+      {/* Feedback Toast Banner */}
+      {feedback && (
+        <div 
+          className="mb-4 p-3 rounded flex items-center gap-2 animate-fade-in"
+          style={{
+            backgroundColor: feedback.type === 'success' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+            border: `1px solid ${feedback.type === 'success' ? 'var(--color-success)' : 'var(--color-danger)'}`,
+            color: feedback.type === 'success' ? 'var(--color-success)' : 'var(--color-danger)'
+          }}
+        >
+          {feedback.type === 'success' ? <CheckCircle size={18} /> : <AlertCircle size={18} />}
+          <span className="font-medium text-sm">{feedback.message}</span>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         
         {/* Left Col: Avatar and basic info */}
-        <div className="md:col-span-1">
+        <div className="md:col-span-1" style={{ display: 'flex', flexDirection: 'column' }}>
           <div className="card text-center mb-6">
             <div style={{
               width: '120px', height: '120px', margin: '0 auto 16px', borderRadius: '50%',
@@ -66,25 +146,31 @@ export default function StudentProfile() {
               <User size={64} style={{ color: 'var(--color-primary)' }} />
             </div>
             <h2 className="text-xl font-bold text-primary">{profileData.name}</h2>
-            <p className="text-muted text-sm mt-1">{profileData.department}</p>
+            <p className="text-muted text-sm mt-1">{profileData.department || 'General'}</p>
             <div className="badge badge-primary mt-3">
               {user?.role === 'teacher' ? 'ID' : 'Roll'}: {profileData.rollNumber}
             </div>
           </div>
 
-          <div className="card">
+          <div className="card" style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
             <h3 className="font-bold mb-4 border-bottom pb-2" style={{ borderBottom: '1px solid var(--color-border)' }}>Quick Stats</h3>
-            <div className="flex justify-between mb-3 text-sm">
-              <span className="text-muted">Total Bookings</span>
-              <span className="font-bold">4</span>
-            </div>
-            <div className="flex justify-between mb-3 text-sm">
-              <span className="text-muted">Active Bookings</span>
-              <span className="font-bold text-success">1</span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-muted">Status</span>
-              <span className="badge badge-success">Active</span>
+            <div className="flex flex-col gap-3 flex-1 justify-around text-sm">
+              <div className="flex justify-between items-center py-2" style={{ borderBottom: '1px solid var(--color-border)' }}>
+                <span className="text-muted">Total Bookings</span>
+                <span className="font-bold text-base">{stats.total}</span>
+              </div>
+              <div className="flex justify-between items-center py-2" style={{ borderBottom: '1px solid var(--color-border)' }}>
+                <span className="text-muted">Active Bookings</span>
+                <span className="font-bold text-success text-base">{stats.active}</span>
+              </div>
+              <div className="flex justify-between items-center py-2" style={{ borderBottom: '1px solid var(--color-border)' }}>
+                <span className="text-muted">Role Category</span>
+                <span className="font-medium">{user?.role === 'teacher' ? 'Faculty Member' : 'Student / Guest'}</span>
+              </div>
+              <div className="flex justify-between items-center py-2">
+                <span className="text-muted">Account Status</span>
+                <span className="badge badge-success">Active</span>
+              </div>
             </div>
           </div>
         </div>
@@ -92,16 +178,31 @@ export default function StudentProfile() {
         {/* Right Col: Details and Edit Form */}
         <div className="md:col-span-2">
           <div className="card mb-6">
-            <div className="flex justify-between items-center mb-6 pb-2" style={{ borderBottom: '1px solid var(--color-border)' }}>
+            <div className="flex flex-wrap justify-between items-center gap-2 mb-6 pb-2" style={{ borderBottom: '1px solid var(--color-border)' }}>
               <h3 className="font-bold text-lg">Personal Information</h3>
               {!isEditing ? (
                 <button onClick={() => setIsEditing(true)} className="btn btn-secondary" style={{ padding: '0.4rem 0.8rem', fontSize: '0.85rem' }}>
                   <Edit3 size={16} /> Edit Profile
                 </button>
               ) : (
-                <button onClick={handleSave} className="btn btn-primary" style={{ padding: '0.4rem 0.8rem', fontSize: '0.85rem' }}>
-                  <Save size={16} /> Save Changes
-                </button>
+                <div className="flex items-center gap-2">
+                  <button 
+                    onClick={handleSave} 
+                    disabled={isSaving}
+                    className="btn btn-primary" 
+                    style={{ padding: '0.4rem 0.8rem', fontSize: '0.85rem', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                  >
+                    <Save size={16} /> {isSaving ? 'Saving...' : 'Save Changes'}
+                  </button>
+                  <button 
+                    onClick={handleCancelEdit} 
+                    disabled={isSaving}
+                    className="btn btn-secondary" 
+                    style={{ padding: '0.4rem 0.8rem', fontSize: '0.85rem' }}
+                  >
+                    Cancel
+                  </button>
+                </div>
               )}
             </div>
 
@@ -109,7 +210,13 @@ export default function StudentProfile() {
               <div className="form-group">
                 <label className="form-label text-muted flex items-center gap-2"><User size={16} /> Full Name</label>
                 {isEditing ? (
-                  <input type="text" className="form-input" value={profileData.name} onChange={e => setProfileData({...profileData, name: e.target.value})} />
+                  <input 
+                    type="text" 
+                    className="form-input" 
+                    value={profileData.name} 
+                    onChange={e => setProfileData({...profileData, name: e.target.value})} 
+                    placeholder="Enter full name"
+                  />
                 ) : (
                   <div className="font-medium p-2 bg-gray-50 rounded" style={{ backgroundColor: 'rgba(0,0,0,0.02)' }}>{profileData.name}</div>
                 )}
@@ -118,16 +225,29 @@ export default function StudentProfile() {
               <div className="form-group">
                 <label className="form-label text-muted flex items-center gap-2"><Book size={16} /> Department</label>
                 {isEditing ? (
-                  <input type="text" className="form-input" value={profileData.department} disabled title="Department cannot be changed" style={{ backgroundColor: '#f3f4f6', cursor: 'not-allowed' }} />
+                  <input 
+                    type="text" 
+                    className="form-input" 
+                    value={profileData.department} 
+                    onChange={e => setProfileData({...profileData, department: e.target.value})} 
+                    placeholder="e.g. ETE, CSE, EEE"
+                  />
                 ) : (
-                  <div className="font-medium p-2 bg-gray-50 rounded" style={{ backgroundColor: 'rgba(0,0,0,0.02)' }}>{profileData.department}</div>
+                  <div className="font-medium p-2 bg-gray-50 rounded" style={{ backgroundColor: 'rgba(0,0,0,0.02)' }}>{profileData.department || 'N/A'}</div>
                 )}
               </div>
 
               <div className="form-group">
                 <label className="form-label text-muted flex items-center gap-2"><Mail size={16} /> Email Address</label>
                 {isEditing ? (
-                  <input type="email" className="form-input" value={profileData.email} disabled title="Email cannot be changed" style={{ backgroundColor: '#f3f4f6', cursor: 'not-allowed' }} />
+                  <input 
+                    type="email" 
+                    className="form-input" 
+                    value={profileData.email} 
+                    disabled 
+                    title="Account email address cannot be modified" 
+                    style={{ backgroundColor: '#f3f4f6', cursor: 'not-allowed' }} 
+                  />
                 ) : (
                   <div className="font-medium p-2 bg-gray-50 rounded" style={{ backgroundColor: 'rgba(0,0,0,0.02)' }}>{profileData.email}</div>
                 )}
@@ -136,9 +256,30 @@ export default function StudentProfile() {
               <div className="form-group">
                 <label className="form-label text-muted flex items-center gap-2"><Phone size={16} /> Mobile Number</label>
                 {isEditing ? (
-                  <input type="text" className="form-input" value={profileData.mobile} onChange={e => setProfileData({...profileData, mobile: e.target.value})} />
+                  <input 
+                    type="text" 
+                    className="form-input" 
+                    value={profileData.mobile} 
+                    onChange={e => setProfileData({...profileData, mobile: e.target.value})} 
+                    placeholder="Enter mobile number"
+                  />
                 ) : (
-                  <div className="font-medium p-2 bg-gray-50 rounded" style={{ backgroundColor: 'rgba(0,0,0,0.02)' }}>{profileData.mobile}</div>
+                  <div className="font-medium p-2 bg-gray-50 rounded" style={{ backgroundColor: 'rgba(0,0,0,0.02)' }}>{profileData.mobile || 'Not set'}</div>
+                )}
+              </div>
+
+              <div className="form-group md:col-span-2">
+                <label className="form-label text-muted flex items-center gap-2"><Briefcase size={16} /> Designation</label>
+                {isEditing ? (
+                  <input 
+                    type="text" 
+                    className="form-input" 
+                    value={profileData.designation} 
+                    onChange={e => setProfileData({...profileData, designation: e.target.value})} 
+                    placeholder="e.g. Professor, Lecturer, Student"
+                  />
+                ) : (
+                  <div className="font-medium p-2 bg-gray-50 rounded" style={{ backgroundColor: 'rgba(0,0,0,0.02)' }}>{profileData.designation || 'Student'}</div>
                 )}
               </div>
             </div>
@@ -150,14 +291,14 @@ export default function StudentProfile() {
             {!isChangingPassword ? (
               <>
                 <p className="text-sm text-muted mb-4">Update your password to keep your account secure.</p>
-                <div className="flex items-center gap-4">
+                <div className="flex flex-wrap items-center gap-3">
                   <button className="btn btn-secondary" onClick={() => setIsChangingPassword(true)}>Change Password</button>
                   <button 
                     className="text-primary text-sm font-medium" 
                     style={{ background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}
                     onClick={async () => {
                       try {
-                        alert('Sending password reset link...');
+                        showNotification('success', 'Sending password reset link...');
                         const response = await fetch(`${API_BASE_URL}/api/auth/forgot-password`, {
                           method: 'POST',
                           headers: { 'Content-Type': 'application/json' },
@@ -165,12 +306,12 @@ export default function StudentProfile() {
                         });
                         const data = await response.json();
                         if (response.ok) {
-                          alert(`Success: ${data.message}`);
+                          showNotification('success', data.message || 'Password reset link sent to your email.');
                         } else {
-                          alert(`Error: ${data.error}`);
+                          showNotification('error', data.error || 'Failed to send reset link.');
                         }
                       } catch (err) {
-                        alert('Failed to connect to the server.');
+                        showNotification('error', 'Failed to connect to the server.');
                       }
                     }}
                   >

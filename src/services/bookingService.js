@@ -19,7 +19,6 @@ const mapBookingToCamelCase = (b, guests = []) => ({
   stayPurpose: b.stay_purpose,
   assignedRoom: b.assigned_room,
   approvingTeacherId: b.approving_teacher_id,
-  signatureImage: b.signature_image,
   totalAmount: b.total_amount,
   paymentStatus: b.payment_status,
   approvalStatus: b.approval_status,
@@ -37,27 +36,62 @@ const mapBookingToCamelCase = (b, guests = []) => ({
 });
 
 export const bookingService = {
-  async getStudentBookings(userId) {
-    const { data, error } = await supabase
-      .from('bookings')
-      .select('*, guests(*)')
-      .eq('user_id', userId);
+  async getStudentBookings(userOrId) {
+    let query = supabase.from('bookings').select('*, guests(*)');
+
+    if (typeof userOrId === 'object' && userOrId !== null) {
+      if (userOrId.role === 'teacher') {
+        const filter = userOrId.name 
+          ? `user_id.eq.${userOrId.id},approving_teacher_id.eq.${userOrId.id},applicant_name.eq.${userOrId.name}`
+          : `user_id.eq.${userOrId.id},approving_teacher_id.eq.${userOrId.id}`;
+        query = query.or(filter);
+      } else {
+        query = query.eq('user_id', userOrId.id);
+      }
+    } else if (typeof userOrId === 'string') {
+      if (userOrId.startsWith('teacher_')) {
+        query = query.or(`user_id.eq.${userOrId},approving_teacher_id.eq.${userOrId}`);
+      } else {
+        query = query.eq('user_id', userOrId);
+      }
+    }
       
+    const { data, error } = await query;
     if (error) {
       console.error(error);
       throw new Error("Failed to fetch user bookings");
     }
     
     // Sort logic handled in memory for simplicity just like before
-    return data.map(b => mapBookingToCamelCase(b, b.guests || []));
+    return (data || []).map(b => mapBookingToCamelCase(b, b.guests || []));
+  },
+
+  getUserBookings(userOrId) {
+    return this.getStudentBookings(userOrId);
   },
   
-  async getLatestBooking(userId) {
-    const { data, error } = await supabase
-      .from('bookings')
-      .select('*, guests(*)')
-      .eq('user_id', userId)
-      .order('id', { ascending: false }) // Or order by created_at if we had it, fallback to id for now
+  async getLatestBooking(userOrId) {
+    let query = supabase.from('bookings').select('*, guests(*)');
+
+    if (typeof userOrId === 'object' && userOrId !== null) {
+      if (userOrId.role === 'teacher') {
+        const filter = userOrId.name 
+          ? `user_id.eq.${userOrId.id},approving_teacher_id.eq.${userOrId.id},applicant_name.eq.${userOrId.name}`
+          : `user_id.eq.${userOrId.id},approving_teacher_id.eq.${userOrId.id}`;
+        query = query.or(filter);
+      } else {
+        query = query.eq('user_id', userOrId.id);
+      }
+    } else if (typeof userOrId === 'string') {
+      if (userOrId.startsWith('teacher_')) {
+        query = query.or(`user_id.eq.${userOrId},approving_teacher_id.eq.${userOrId}`);
+      } else {
+        query = query.eq('user_id', userOrId);
+      }
+    }
+
+    const { data, error } = await query
+      .order('id', { ascending: false })
       .limit(1)
       .maybeSingle();
       
@@ -119,7 +153,6 @@ export const bookingService = {
       stay_purpose: restData.stayPurpose,
       assigned_room: restData.assignedRoom || null,
       approving_teacher_id: restData.approvingTeacherId,
-      signature_image: restData.signatureImage,
       total_amount: restData.totalAmount,
       approval_status: restData.isTeacherBooking ? 'PENDING_PAYMENT' : 'PENDING_TEACHER_APPROVAL',
       payment_status: 'PENDING',
@@ -154,6 +187,38 @@ export const bookingService = {
        }
     }
 
+    // Create real notifications in Supabase
+    try {
+      const { notificationService } = await import('./notificationService');
+      await notificationService.createNotification({
+        userId: restData.userId,
+        type: 'info',
+        title: 'Booking Request Submitted',
+        message: `Your booking request ${id} has been submitted${restData.isTeacherBooking ? '. Please proceed to payment.' : ' and is pending teacher approval.'}`,
+        link: restData.isTeacherBooking ? '/teacher/history' : '/student/history'
+      });
+
+      if (restData.approvingTeacherId) {
+        await notificationService.createNotification({
+          userId: restData.approvingTeacherId,
+          type: 'warning',
+          title: 'New Student Application For Review',
+          message: `${restData.applicantName} (${restData.department?.toUpperCase() || 'Student'}) requested your approval for booking ${id}.`,
+          link: '/teacher/applications'
+        });
+      }
+
+      // Also notify Admin of the new booking application
+      await notificationService.notifyAdmin({
+        type: 'info',
+        title: 'New Booking Application',
+        message: `${restData.applicantName} (${restData.department?.toUpperCase() || (restData.isTeacherBooking ? 'Teacher' : 'Student')}) submitted booking ${id} for ${restData.requestedRoomCount} room(s).`,
+        link: '/admin/bookings'
+      });
+    } catch (notifErr) {
+      console.warn("Booking notification error:", notifErr);
+    }
+
     return mapBookingToCamelCase(insertedBooking, guests || []);
   },
   
@@ -174,6 +239,66 @@ export const bookingService = {
     if (error) {
       console.error(error);
       throw new Error("Failed to update booking status");
+    }
+
+    // Persist status change notification into Supabase
+    try {
+      const { notificationService } = await import('./notificationService');
+      const targetUserId = data?.user_id;
+      if (targetUserId) {
+        if (updates.approvalStatus === 'PENDING_PAYMENT') {
+          await notificationService.createNotification({
+            userId: targetUserId,
+            type: 'warning',
+            title: 'Teacher Approval Received - Payment Required',
+            message: `Your booking ${id} has been approved by your department teacher. Please proceed to payment.`,
+            link: '/student/payment'
+          });
+          await notificationService.notifyAdmin({
+            type: 'info',
+            title: 'Teacher Approval Granted',
+            message: `Booking ${id} (${data?.applicant_name || 'Guest'}) has been approved by department teacher and awaits payment.`,
+            link: '/admin/bookings'
+          });
+        } else if (updates.approvalStatus === 'APPROVED' && (updates.bookingStatus === 'CONFIRMED' || data?.booking_status === 'CONFIRMED')) {
+          await notificationService.createNotification({
+            userId: targetUserId,
+            type: 'success',
+            title: 'Booking Approved & Confirmed',
+            message: `Your booking ${id} has been approved${data?.assigned_room ? ` (Room ${data.assigned_room})` : ''}.`,
+            link: '/student/history'
+          });
+          await notificationService.notifyAdmin({
+            type: 'success',
+            title: 'Booking Confirmed',
+            message: `Booking ${id} (${data?.applicant_name || 'Guest'}) has been confirmed${data?.assigned_room ? ` for Room ${data.assigned_room}` : ''}.`,
+            link: '/admin/bookings'
+          });
+        } else if (updates.approvalStatus === 'REJECTED' || updates.approvalStatus === 'REJECTED_BY_TEACHER') {
+          await notificationService.createNotification({
+            userId: targetUserId,
+            type: 'danger',
+            title: 'Application Rejected',
+            message: `Your booking application ${id} was rejected.${updates.rejectionReason ? ` Reason: ${updates.rejectionReason}` : ''}`,
+            link: '/student/history'
+          });
+          await notificationService.notifyAdmin({
+            type: 'warning',
+            title: 'Application Rejected',
+            message: `Booking ${id} (${data?.applicant_name || 'Guest'}) was rejected.`,
+            link: '/admin/bookings'
+          });
+        } else if (updates.bookingStatus === 'CANCELLED') {
+          await notificationService.notifyAdmin({
+            type: 'warning',
+            title: 'Booking Cancelled',
+            message: `Booking ${id} (${data?.applicant_name || 'Guest'}) has been cancelled.`,
+            link: '/admin/bookings'
+          });
+        }
+      }
+    } catch (nErr) {
+      console.warn("Update status notification error:", nErr);
     }
 
     return mapBookingToCamelCase(data, data.guests || []);
@@ -228,17 +353,101 @@ export const bookingService = {
 
     if (updated?.assignedRoom) {
       try {
-        await supabase
-          .from('rooms')
-          .update({ status: 'occupied' })
-          .eq('room_number', updated.assignedRoom);
+        const { roomService } = await import('./roomService');
+        await roomService.syncRoomAvailability();
       } catch (rErr) {
-        console.error("Room status update error:", rErr);
+        console.error("Room sync error on cash verify:", rErr);
       }
     }
 
     // Broadcast change to update all portals / navbar / sidebar badges immediately
     window.dispatchEvent(new Event('indicatorsChanged'));
     return result || { success: true, booking: updated };
+  },
+
+  async deleteBooking(id) {
+    // 1. Fetch booking to know details (like assigned room)
+    const { data: booking, error: fetchErr } = await supabase
+      .from('bookings')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (fetchErr) {
+      console.warn("Could not fetch booking before deletion:", fetchErr);
+    }
+
+    // 2. Delete related records in guests and meals
+    try {
+      await supabase.from('guests').delete().eq('booking_id', id);
+    } catch (gErr) {
+      console.warn("Guest deletion note:", gErr);
+    }
+    try {
+      await supabase.from('meals').delete().eq('booking_id', id);
+    } catch (mErr) {
+      console.warn("Meal deletion note:", mErr);
+    }
+
+    // 3. Delete the booking directly from Supabase bookings table
+    const { error: delErr } = await supabase
+      .from('bookings')
+      .delete()
+      .eq('id', id);
+
+    if (delErr) {
+      console.error("Supabase deleteBooking error:", delErr);
+      throw new Error(delErr.message || "Failed to delete booking from database");
+    }
+
+    // 4. If booking had an assigned room and status was confirmed/occupied, free the room
+    if (booking?.assigned_room && (booking?.booking_status === 'CONFIRMED' || booking?.booking_status === 'PENDING')) {
+      try {
+        await supabase
+          .from('rooms')
+          .update({ status: 'available' })
+          .eq('room_number', booking.assigned_room);
+      } catch (rErr) {
+        console.warn("Room status reset warning:", rErr);
+      }
+    }
+
+    // 5. Broadcast change to update all portals / badges immediately
+    window.dispatchEvent(new Event('indicatorsChanged'));
+    return { success: true };
+  },
+
+  async getDatabaseTime() {
+    try {
+      // 1. Try backend endpoint
+      const response = await fetch(`${API_BASE_URL}/api/database-time`, {
+        signal: AbortSignal.timeout(3000)
+      });
+      if (response.ok) {
+        const data = await response.json();
+        if (data.timestamp) return new Date(data.timestamp);
+      }
+    } catch (e) {
+      // Fallback to direct Supabase ping
+    }
+
+    try {
+      // 2. Direct ping to Supabase REST endpoint to read the exact server Date header
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+      if (supabaseUrl && supabaseKey) {
+        const res = await fetch(`${supabaseUrl}/rest/v1/`, {
+          method: 'HEAD',
+          headers: { apikey: supabaseKey },
+          signal: AbortSignal.timeout(3000)
+        });
+        const dateHeader = res.headers.get('date');
+        if (dateHeader) return new Date(dateHeader);
+      }
+    } catch (e) {
+      console.warn("Direct Supabase date fetch error:", e);
+    }
+
+    return new Date();
   }
 };

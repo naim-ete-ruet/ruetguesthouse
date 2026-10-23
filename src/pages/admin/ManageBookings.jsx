@@ -1,14 +1,69 @@
 import { useState, useEffect } from 'react';
 import { bookingService } from '../../services/bookingService';
 import { roomService } from '../../services/roomService';
-import { Eye, Check, X, Search, Filter, XCircle, DoorOpen } from 'lucide-react';
+import { Eye, Check, X, Search, Filter, XCircle, DoorOpen, Trash2 } from 'lucide-react';
 import { API_BASE_URL } from '../../config/api';
+
+const parseDateTime = (dateStr, timeStr, defaultTime = '12:00') => {
+  if (!dateStr) return null;
+  const cleanDate = dateStr.trim().split('T')[0];
+  let hours = 12;
+  let minutes = 0;
+  
+  if (timeStr && typeof timeStr === 'string') {
+    const rawTime = timeStr.trim().toLowerCase();
+    const isPM = rawTime.includes('pm');
+    const isAM = rawTime.includes('am');
+    const cleanTime = rawTime.replace(/[^\d:]/g, '');
+    const parts = cleanTime.split(':');
+    if (parts.length >= 1) {
+      hours = parseInt(parts[0], 10) || 0;
+      if (parts.length >= 2) {
+        minutes = parseInt(parts[1], 10) || 0;
+      }
+      if (isPM && hours < 12) hours += 12;
+      if (isAM && hours === 12) hours = 0;
+    }
+  } else if (defaultTime) {
+    const parts = defaultTime.split(':');
+    hours = parseInt(parts[0], 10) || 12;
+    minutes = parseInt(parts[1], 10) || 0;
+  }
+  
+  const d = new Date(cleanDate);
+  d.setHours(hours, minutes, 0, 0);
+  return d;
+};
+
+const isBookingExpired = (booking) => {
+  if (!booking) return false;
+  if (
+    booking.bookingStatus === 'COMPLETED' ||
+    booking.bookingStatus === 'CANCELLED' ||
+    booking.approvalStatus === 'CANCELLED' ||
+    booking.approvalStatus === 'REJECTED' ||
+    booking.approvalStatus === 'REJECTED_BY_TEACHER'
+  ) {
+    return true;
+  }
+
+  const dateStr = booking.checkOutDate || booking.checkInDate;
+  if (dateStr) {
+    const timeStr = booking.checkOutTime || '12:00';
+    const checkoutDateTime = parseDateTime(dateStr, timeStr);
+    if (checkoutDateTime && new Date() >= checkoutDateTime) {
+      return true;
+    }
+  }
+  return false;
+};
 
 export default function ManageBookings() {
   const [bookings, setBookings] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [filter, setFilter] = useState('ALL'); // ALL, PENDING, APPROVED, CANCELLED
   const [selectedBooking, setSelectedBooking] = useState(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
     fetchBookings();
@@ -77,7 +132,7 @@ export default function ManageBookings() {
           await bookingService.updateBookingStatus(id, update);
           
           if (bookingTarget?.assignedRoom) {
-            await roomService.updateRoomStatus(bookingTarget.assignedRoom, 'occupied');
+            await roomService.syncRoomAvailability();
           }
 
           setBookings(bookings.map(b => b.id === id ? { ...b, ...update } : b));
@@ -88,6 +143,26 @@ export default function ManageBookings() {
       } catch (err) {
         console.error("Action failed", err);
       }
+    }
+  };
+
+  const handleDeleteBooking = async (id) => {
+    if (!window.confirm(`Are you sure you want to permanently delete booking ${id} from the database? This action cannot be undone.`)) {
+      return;
+    }
+
+    setIsDeleting(true);
+    try {
+      await bookingService.deleteBooking(id);
+      setBookings(prev => prev.filter(b => b.id !== id));
+      setSelectedBooking(null);
+      alert(`Booking ${id} was successfully deleted from the database.`);
+      await roomService.syncRoomAvailability();
+    } catch (err) {
+      console.error("Failed to delete booking:", err);
+      alert(err.message || "Failed to delete booking from database.");
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -107,14 +182,14 @@ export default function ManageBookings() {
     <div className="container">
       <h1 className="text-2xl font-bold mb-6">Manage Bookings</h1>
 
-      <div className="card mb-6 flex justify-between items-center">
-        <div className="flex items-center gap-2 w-full max-w-md">
-          <Search className="text-muted" size={20} />
-          <input type="text" placeholder="Search by ID or Name..." className="form-input" />
+      <div className="card mb-6 flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-4">
+        <div className="flex items-center gap-2 w-full sm:max-w-md">
+          <Search className="text-muted flex-shrink-0" size={20} />
+          <input type="text" placeholder="Search by ID or Name..." className="form-input w-full" />
         </div>
-        <div className="flex items-center gap-2">
-          <Filter className="text-muted" size={20} />
-          <select className="form-select" value={filter} onChange={e => setFilter(e.target.value)}>
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          <Filter className="text-muted flex-shrink-0" size={20} />
+          <select className="form-select w-full sm:w-auto" value={filter} onChange={e => setFilter(e.target.value)}>
             <option value="ALL">All Bookings</option>
             <option value="PENDING_APPROVAL">Pending Approval</option>
             <option value="APPROVED">Approved</option>
@@ -174,9 +249,16 @@ export default function ManageBookings() {
                     {isRefundedOrCancelled ? (
                       <span className="badge badge-danger">CANCELLED</span>
                     ) : (
-                      <span className={`badge ${booking.approvalStatus === 'APPROVED' ? 'badge-success' : booking.approvalStatus === 'PENDING_APPROVAL' ? 'badge-warning' : 'badge-danger'}`}>
-                        {booking.approvalStatus.replace(/_/g, ' ')}
-                      </span>
+                      <div className="flex flex-col gap-1 items-start">
+                        <span className={`badge ${booking.approvalStatus === 'APPROVED' ? 'badge-success' : booking.approvalStatus === 'PENDING_APPROVAL' ? 'badge-warning' : 'badge-danger'}`}>
+                          {booking.approvalStatus.replace(/_/g, ' ')}
+                        </span>
+                        {isBookingExpired(booking) && (
+                          <span className="badge" style={{ fontSize: '0.65rem', backgroundColor: 'rgba(107, 114, 128, 0.15)', color: '#6B7280' }}>
+                            EXPIRED
+                          </span>
+                        )}
+                      </div>
                     )}
                   </td>
                   <td className="p-3">
@@ -257,20 +339,37 @@ export default function ManageBookings() {
               </div>
 
               <div className="mt-6 flex flex-col sm:flex-row justify-between items-center gap-3 pt-4" style={{ borderTop: '1px solid var(--color-border)' }}>
-                <div>
+                <div className="flex items-center gap-2 flex-wrap">
                   {isModalRefundedOrCancelled && (
                     <span className="badge badge-danger text-xs font-semibold">
                       Booking Cancelled & Refunded (No approval action permitted)
                     </span>
                   )}
+                  {isBookingExpired(selectedBooking) && (
+                    <span className="badge" style={{ backgroundColor: 'rgba(107, 114, 128, 0.15)', color: '#6B7280', fontSize: '0.75rem' }}>
+                      Stay Expired
+                    </span>
+                  )}
                 </div>
 
-                <div className="flex gap-3">
+                <div className="flex items-center gap-3 flex-wrap">
                   {selectedBooking.approvalStatus === 'PENDING_APPROVAL' && !isModalRefundedOrCancelled && (
                     <>
                       <button onClick={() => { handleAction(selectedBooking.id, 'APPROVE'); setSelectedBooking(null); }} className="btn btn-success" style={{ backgroundColor: 'var(--color-success)', color: 'white' }}>Approve</button>
                       <button onClick={() => { handleAction(selectedBooking.id, 'REJECT'); setSelectedBooking(null); }} className="btn btn-danger">Reject</button>
                     </>
+                  )}
+
+                  {isBookingExpired(selectedBooking) && (
+                    <button
+                      onClick={() => handleDeleteBooking(selectedBooking.id)}
+                      disabled={isDeleting}
+                      className="btn btn-danger flex items-center gap-1.5"
+                      style={{ padding: '0.45rem 0.9rem', fontSize: '0.85rem' }}
+                      title="Permanently delete this expired booking from the database"
+                    >
+                      <Trash2 size={16} /> {isDeleting ? 'Deleting...' : 'Delete Booking'}
+                    </button>
                   )}
 
                   <button className="btn btn-secondary" onClick={() => setSelectedBooking(null)}>Close</button>
