@@ -1,4 +1,5 @@
 require('dotenv').config({ path: '../.env' });
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const SSLCommerzPayment = require('sslcommerz-lts');
@@ -6,7 +7,10 @@ const { createClient } = require('@supabase/supabase-js');
 const nodemailer = require('nodemailer');
 
 const app = express();
-app.use(cors());
+app.use(cors({
+  origin: '*', // Allow requests from Netlify frontend and localhost
+  credentials: true
+}));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -20,7 +24,8 @@ const store_id = process.env.STORE_ID || 'ruetg6a9c198851a90';
 const store_passwd = process.env.STORE_PASSWORD || '5sPcemnKuiCe';
 const is_live = false; // true for live, false for sandbox
 
-const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+const BACKEND_URL = (process.env.BACKEND_URL || 'http://localhost:5000').replace(/\/+$/, '');
+const FRONTEND_URL = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/+$/, '');
 
 // Nodemailer Transporter Setup
 const transporter = nodemailer.createTransport({
@@ -332,10 +337,10 @@ app.post('/api/payment/init', async (req, res) => {
     total_amount: amount,
     currency: 'BDT',
     tran_id: tran_id, // unique tran_id tied to reference
-    success_url: `http://localhost:5000/api/payment/success?tran_id=${tran_id}&ref=${reference_id}&type=${item_type}&role=${role || 'student'}`,
-    fail_url: `http://localhost:5000/api/payment/fail?tran_id=${tran_id}&ref=${reference_id}&role=${role || 'student'}`,
-    cancel_url: `http://localhost:5000/api/payment/cancel?tran_id=${tran_id}&ref=${reference_id}&role=${role || 'student'}`,
-    ipn_url: 'http://localhost:5000/api/payment/ipn',
+    success_url: `${BACKEND_URL}/api/payment/success?tran_id=${tran_id}&ref=${reference_id}&type=${item_type}&role=${role || 'student'}`,
+    fail_url: `${BACKEND_URL}/api/payment/fail?tran_id=${tran_id}&ref=${reference_id}&role=${role || 'student'}`,
+    cancel_url: `${BACKEND_URL}/api/payment/cancel?tran_id=${tran_id}&ref=${reference_id}&role=${role || 'student'}`,
+    ipn_url: `${BACKEND_URL}/api/payment/ipn`,
     shipping_method: 'No',
     product_name: item_type === 'booking' ? 'Room Booking' : 'Dining Meal',
     product_category: 'Service',
@@ -361,7 +366,7 @@ app.post('/api/payment/init', async (req, res) => {
 
   if (amount <= 0) {
     // If amount is 0 (e.g. VIP rooms or free bookings), bypass SSLCommerz
-    return res.json({ url: `http://localhost:5000/api/payment/success?tran_id=${tran_id}&ref=${reference_id}&type=${item_type}&role=${role || 'student'}` });
+    return res.json({ url: `${BACKEND_URL}/api/payment/success?tran_id=${tran_id}&ref=${reference_id}&type=${item_type}&role=${role || 'student'}` });
   }
 
   const sslcz = new SSLCommerzPayment(store_id, store_passwd, is_live);
@@ -917,9 +922,9 @@ app.get('/api/payment/transactions', (req, res) => {
   res.json(loadTransactions());
 });
 
-const PORT = 5000;
+const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
-  console.log(`SSLCommerz Backend running on http://localhost:${PORT}`);
+  console.log(`Backend server running on port ${PORT}`);
   // Initial sync on launch & recurring every 30 seconds
   syncRoomAvailability();
   setInterval(syncRoomAvailability, 30000);
