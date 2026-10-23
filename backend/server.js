@@ -24,7 +24,7 @@ const store_id = process.env.STORE_ID || 'ruetg6a9c198851a90';
 const store_passwd = process.env.STORE_PASSWORD || '5sPcemnKuiCe';
 const is_live = false; // true for live, false for sandbox
 
-const BACKEND_URL = (process.env.BACKEND_URL || 'http://localhost:5000').replace(/\/+$/, '');
+const BACKEND_URL = (process.env.BACKEND_URL || process.env.RENDER_EXTERNAL_URL || 'http://localhost:5000').replace(/\/+$/, '');
 const FRONTEND_URL = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/+$/, '');
 
 // Nodemailer Transporter Setup
