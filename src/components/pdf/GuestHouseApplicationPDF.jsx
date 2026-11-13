@@ -4,7 +4,7 @@ const getAssetUrl = (relativePath) => {
   if (typeof window !== 'undefined' && window.location?.origin) {
     return `${window.location.origin}${relativePath}`;
   }
-  return `http://localhost:5173${relativePath}`;
+  return relativePath;
 };
 
 Font.register({
@@ -277,7 +277,7 @@ export const formatIssueDateTime = (dateObj) => {
   if (isNaN(dateObj.getTime())) {
     dateObj = new Date();
   }
-  
+
   const year = dateObj.getFullYear();
   const month = String(dateObj.getMonth() + 1).padStart(2, '0');
   const day = String(dateObj.getDate()).padStart(2, '0');
@@ -354,7 +354,7 @@ export const GuestHouseApplicationPDF = ({ booking, issueDateTime }) => {
 
         {/* 01. Applicant Info */}
         <View style={styles.row}>
-          <Text style={styles.textLabel}>01. Applicant's name:</Text>
+          <Text style={styles.textLabel}>01. Applicant's Name:</Text>
           <Text style={styles.dottedLine}>{booking?.applicantName || ''}</Text>
           <Text style={styles.textLabel}>Title:</Text>
           <Text style={styles.dottedLineShort}>{booking?.designation || ''}</Text>
@@ -368,7 +368,7 @@ export const GuestHouseApplicationPDF = ({ booking, issueDateTime }) => {
 
         {/* 02. Full information of the resident (not bold) */}
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitleText}>02. Full information of the resident:</Text>
+          <Text style={styles.sectionTitleText}>02. Full Information of the Resident:</Text>
         </View>
 
         {/* Guest A - Mandatory in every application */}
@@ -386,7 +386,7 @@ export const GuestHouseApplicationPDF = ({ booking, issueDateTime }) => {
           <View style={styles.row}>
             <Text style={styles.textLabel}>Mobile Number:</Text>
             <Text style={styles.dottedLineMedium}>{guestA.mobile || ''}</Text>
-            <Text style={styles.textLabel}>Relationship to the applicant:</Text>
+            <Text style={styles.textLabel}>Relationship to the Applicant:</Text>
             <Text style={styles.dottedLine}>{guestA.relationship || ''}</Text>
           </View>
         </View>
@@ -409,7 +409,7 @@ export const GuestHouseApplicationPDF = ({ booking, issueDateTime }) => {
               <View style={styles.row}>
                 <Text style={styles.textLabel}>Mobile Number:</Text>
                 <Text style={styles.dottedLineMedium}>{guest.mobile || ''}</Text>
-                <Text style={styles.textLabel}>Relationship to the applicant:</Text>
+                <Text style={styles.textLabel}>Relationship to the Applicant:</Text>
                 <Text style={styles.dottedLine}>{guest.relationship || ''}</Text>
               </View>
             </View>
@@ -418,7 +418,7 @@ export const GuestHouseApplicationPDF = ({ booking, issueDateTime }) => {
 
         {/* 03. Date of room requirement */}
         <View style={styles.row}>
-          <Text style={styles.textLabel}>03. Date of room requirement:</Text>
+          <Text style={styles.textLabel}>03. Date of Room Requirement:</Text>
           <Text style={styles.dottedLine}>{booking?.checkInDate || ''}</Text>
           <Text style={styles.textLabel}>Time:</Text>
           <Text style={styles.dottedLineShort}>{booking?.checkInTime || ''}</Text>
@@ -426,7 +426,7 @@ export const GuestHouseApplicationPDF = ({ booking, issueDateTime }) => {
 
         {/* 04. Departure date */}
         <View style={styles.row}>
-          <Text style={styles.textLabel}>04. Departure date:</Text>
+          <Text style={styles.textLabel}>04. Departure Date:</Text>
           <Text style={styles.dottedLine}>{booking?.checkOutDate || ''}</Text>
           <Text style={styles.textLabel}>Time:</Text>
           <Text style={styles.dottedLineShort}>{booking?.checkOutTime || ''}</Text>
@@ -434,7 +434,7 @@ export const GuestHouseApplicationPDF = ({ booking, issueDateTime }) => {
 
         {/* 05. Total days of stay and Room No. */}
         <View style={styles.row}>
-          <Text style={styles.textLabel}>05. Total days of stay:</Text>
+          <Text style={styles.textLabel}>05. Total Days of Stay:</Text>
           <Text style={styles.dottedLineShort}>{booking?.totalDays || ''}</Text>
           <Text style={styles.textLabel}>Room No. :</Text>
           <Text style={styles.dottedLine}>
@@ -444,7 +444,7 @@ export const GuestHouseApplicationPDF = ({ booking, issueDateTime }) => {
 
         {/* 06. Reason for stay */}
         <View style={styles.row}>
-          <Text style={styles.textLabel}>06. Reason for stay (official/personal):</Text>
+          <Text style={styles.textLabel}>06. Reason for Stay (Official/Personal):</Text>
           <Text style={styles.dottedLine}>{formatStayPurpose(booking?.stayPurpose)}</Text>
         </View>
 
@@ -467,7 +467,7 @@ export const GuestHouseApplicationPDF = ({ booking, issueDateTime }) => {
             <View style={styles.signLine} />
             <Text style={styles.signTitle}>Head of Department</Text>
             <Text style={styles.signSubtitle}>Recommended/ Not Recommended</Text>
-            <Text style={styles.signNote}>(For official bookings)</Text>
+            <Text style={styles.signNote}>(For Official Bookings)</Text>
           </View>
           <View style={styles.signBlock}>
             <View style={styles.signLine} />

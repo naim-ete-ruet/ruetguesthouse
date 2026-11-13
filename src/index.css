@@ -275,6 +275,51 @@ a:hover {
   transform: translateY(-2px);
 }
 
+/* Option Button - Rich colorful styling compatible with Light & Dark Mode */
+.btn-option {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0.35rem 0.95rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  border-radius: var(--radius-full);
+  background: linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%);
+  color: #FFFFFF !important;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  box-shadow: 0 2px 8px rgba(79, 70, 229, 0.32);
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.btn-option:hover:not(:disabled) {
+  background: linear-gradient(135deg, #4338CA 0%, #6D28D9 100%);
+  box-shadow: 0 4px 14px rgba(79, 70, 229, 0.48);
+  transform: translateY(-1.5px);
+  color: #FFFFFF !important;
+}
+
+.btn-option:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: 0 1px 4px rgba(79, 70, 229, 0.25);
+}
+
+[data-theme='dark'] .btn-option {
+  background: linear-gradient(135deg, #6366F1 0%, #8B5CF6 100%);
+  color: #FFFFFF !important;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  box-shadow: 0 2px 10px rgba(99, 102, 241, 0.45);
+}
+
+[data-theme='dark'] .btn-option:hover:not(:disabled) {
+  background: linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%);
+  box-shadow: 0 4px 16px rgba(99, 102, 241, 0.6);
+  color: #FFFFFF !important;
+}
+
 /* Badges */
 .badge {
   display: inline-block;
@@ -718,6 +763,29 @@ html, body {
     font-size: 0.8125rem !important;
     padding: 0.5rem 0.85rem !important;
   }
+}
+
+/* Light Green Notice Box for Review Guidance */
+.notice-box-green {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background-color: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  color: #047857;
+  padding: 0.5rem 0.875rem;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  line-height: 1.4;
+  margin-top: 0.5rem;
+  box-shadow: 0 1px 2px rgba(16, 185, 129, 0.05);
+}
+
+[data-theme='dark'] .notice-box-green {
+  background-color: rgba(16, 185, 129, 0.18);
+  border-color: rgba(16, 185, 129, 0.45);
+  color: #34d399;
 }
 
 

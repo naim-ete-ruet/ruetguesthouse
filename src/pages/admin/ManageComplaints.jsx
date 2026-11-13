@@ -1,14 +1,28 @@
 import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { complaintService } from '../../services/complaintService';
-import { Search, Filter, MessageSquare, CheckCircle, XCircle } from 'lucide-react';
+import { Search, Filter, MessageSquare, SlidersHorizontal, CheckCircle, XCircle, X } from 'lucide-react';
 
 export default function ManageComplaints() {
   const [complaints, setComplaints] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [filter, setFilter] = useState('ALL');
+  const [searchTerm, setSearchTerm] = useState('');
   const [selectedComplaint, setSelectedComplaint] = useState(null);
   const [replyText, setReplyText] = useState('');
   const [isReplying, setIsReplying] = useState(false);
+
+  // Lock body scroll when modal is open so position never shifts
+  useEffect(() => {
+    if (selectedComplaint) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [selectedComplaint]);
 
   useEffect(() => {
     fetchComplaints();
@@ -48,8 +62,21 @@ export default function ManageComplaints() {
   };
 
   const filteredComplaints = complaints.filter(c => {
-    if (filter === 'ALL') return true;
-    return c.status === filter;
+    let matchesFilter = true;
+    if (filter !== 'ALL') {
+      matchesFilter = (c.status || '').toUpperCase() === filter;
+    }
+    if (!matchesFilter) return false;
+
+    if (!searchTerm.trim()) return true;
+    const q = searchTerm.toLowerCase();
+    return (
+      (c.id || '').toLowerCase().includes(q) ||
+      (c.subject || '').toLowerCase().includes(q) ||
+      (c.userName || '').toLowerCase().includes(q) ||
+      (c.bookingId || '').toLowerCase().includes(q) ||
+      (c.roomNumber || '').toLowerCase().includes(q)
+    );
   });
 
   return (
@@ -59,7 +86,13 @@ export default function ManageComplaints() {
       <div className="card mb-6 flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-4">
         <div className="flex items-center gap-2 w-full sm:max-w-md">
           <Search className="text-muted flex-shrink-0" size={20} />
-          <input type="text" placeholder="Search by ID or Subject..." className="form-input w-full" />
+          <input 
+            type="text" 
+            placeholder="Search by ID, Guest, Subject, or Room..." 
+            className="form-input w-full" 
+            value={searchTerm}
+            onChange={e => setSearchTerm(e.target.value)}
+          />
         </div>
         <div className="flex items-center gap-2 w-full sm:w-auto">
           <Filter className="text-muted flex-shrink-0" size={20} />
@@ -102,17 +135,17 @@ export default function ManageComplaints() {
                 <td className="p-3 text-sm font-medium">{complaint.subject}</td>
                 <td className="p-3">
                   <span className={`badge ${complaint.status === 'RESOLVED' ? 'badge-success' : complaint.status === 'IN_PROGRESS' ? 'badge-warning' : 'badge-danger'}`}>
-                    {complaint.status.replace(/_/g, ' ')}
+                    {(complaint.status || 'PENDING').replace(/_/g, ' ')}
                   </span>
                 </td>
                 <td className="p-3 text-sm">{new Date(complaint.createdAt).toLocaleDateString()}</td>
                 <td className="p-3 text-center">
                   <button 
                     onClick={() => setSelectedComplaint(complaint)}
-                    className="btn btn-secondary" 
-                    style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}
+                    className="btn btn-option hover-scale" 
+                    title="View complaint options and reply"
                   >
-                    <MessageSquare size={14} className="inline mr-1" /> View / Reply
+                    <SlidersHorizontal size={14} /> Option
                   </button>
                 </td>
               </tr>
@@ -121,80 +154,150 @@ export default function ManageComplaints() {
         </table>
       </div>
 
-      {selectedComplaint && (
-        <div style={{
-          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-          backgroundColor: 'rgba(0, 0, 0, 0.5)', zIndex: 100,
-          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '12px'
-        }}>
-          <div className="card animate-fade-in" style={{ width: '100%', maxWidth: '600px', maxHeight: '90vh', overflowY: 'auto' }}>
-            <div className="flex justify-between items-center mb-4 pb-2" style={{ borderBottom: '1px solid var(--color-border)' }}>
-              <h2 className="text-xl font-bold flex items-center gap-2">
-                Complaint: {selectedComplaint.id}
-              </h2>
+      {selectedComplaint && createPortal(
+        <div 
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            width: '100vw',
+            height: '100vh',
+            backgroundColor: 'rgba(0, 0, 0, 0.65)',
+            backdropFilter: 'blur(3px)',
+            zIndex: 99999,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '1rem',
+            margin: 0
+          }}
+        >
+          <div 
+            className="card animate-fade-in" 
+            style={{ 
+              width: '100%', 
+              maxWidth: '680px', 
+              maxHeight: '92vh', 
+              overflowY: 'auto',
+              borderRadius: '16px',
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
+              padding: '1.25rem'
+            }}
+          >
+            {/* Header */}
+            <div className="flex justify-between items-center mb-3 pb-2" style={{ borderBottom: '1px solid var(--color-border)' }}>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-lg sm:text-xl font-bold">Complaint Details: <span className="text-primary">{selectedComplaint.id}</span></h2>
+                <span className={`badge ${selectedComplaint.status === 'RESOLVED' ? 'badge-success' : selectedComplaint.status === 'IN_PROGRESS' ? 'badge-warning' : 'badge-danger'}`}>
+                  {(selectedComplaint.status || 'PENDING').replace(/_/g, ' ')}
+                </span>
+              </div>
               <button 
                 onClick={() => setSelectedComplaint(null)}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-muted)' }}
+                className="p-1 rounded-full hover:bg-gray-100 transition"
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-muted)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                aria-label="Close"
               >
-                <XCircle size={24} />
+                <X size={20} />
               </button>
             </div>
             
-            <div className="mb-4">
-              <div className="flex flex-wrap justify-between items-center gap-2 mb-2">
-                <span className="font-bold text-lg">{selectedComplaint.subject}</span>
-                <span className={`badge ${selectedComplaint.status === 'RESOLVED' ? 'badge-success' : selectedComplaint.status === 'IN_PROGRESS' ? 'badge-warning' : 'badge-danger'}`}>
-                  {selectedComplaint.status.replace(/_/g, ' ')}
-                </span>
-              </div>
-              <div className="text-sm text-muted mb-3 flex flex-wrap gap-x-4 gap-y-1 border-bottom pb-3">
-                <span>By: {selectedComplaint.userName} ({selectedComplaint.userRole})</span>
-                <span>Room: {selectedComplaint.roomNumber}</span>
-                <span>Date: {new Date(selectedComplaint.createdAt).toLocaleString()}</span>
-              </div>
-              
-              <div className="p-4 bg-gray-50 rounded mb-4" style={{ backgroundColor: 'var(--color-background)' }}>
-                <strong className="block mb-2 text-sm text-muted uppercase">Description</strong>
-                <p className="text-sm whitespace-pre-wrap">{selectedComplaint.description}</p>
+            {/* 2 Balanced Side-by-Side Cards (Stack on mobile) */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3 text-xs sm:text-sm">
+              {/* Card 1: Complainant & Room */}
+              <div className="p-3 rounded-lg" style={{ backgroundColor: 'var(--color-background)', border: '1px solid var(--color-border)' }}>
+                <div className="text-xs uppercase font-bold text-muted mb-2 tracking-wider">Complainant Details</div>
+                <div className="grid grid-cols-2 gap-y-2 gap-x-2">
+                  <div className="col-span-2"><span className="text-muted block text-xs">Name:</span> <strong className="text-text">{selectedComplaint.userName}</strong></div>
+                  <div><span className="text-muted block text-xs">Role:</span> <span className="text-text capitalize">{selectedComplaint.userRole}</span></div>
+                  <div>
+                    <span className="text-muted block text-xs">Room No:</span>
+                    <strong className="text-primary font-bold">
+                      {selectedComplaint.roomNumber 
+                        ? (String(selectedComplaint.roomNumber).toLowerCase().startsWith('room') ? selectedComplaint.roomNumber : `Room ${selectedComplaint.roomNumber}`)
+                        : 'N/A'}
+                    </strong>
+                  </div>
+                </div>
               </div>
 
-              {selectedComplaint.adminReply && (
-                <div className="p-4 rounded mb-4" style={{ backgroundColor: 'rgba(16, 185, 129, 0.05)', border: '1px solid var(--color-success)' }}>
-                  <strong className="block mb-2 text-sm text-success uppercase">Admin Reply</strong>
-                  <p className="text-sm whitespace-pre-wrap">{selectedComplaint.adminReply}</p>
+              {/* Card 2: Complaint Info */}
+              <div className="p-3 rounded-lg" style={{ backgroundColor: 'var(--color-background)', border: '1px solid var(--color-border)' }}>
+                <div className="text-xs uppercase font-bold text-muted mb-2 tracking-wider">Complaint Information</div>
+                <div className="grid grid-cols-2 gap-y-2 gap-x-2">
+                  <div className="col-span-2"><span className="text-muted block text-xs">Subject:</span> <strong className="text-text">{selectedComplaint.subject}</strong></div>
+                  <div><span className="text-muted block text-xs">Date:</span> <span className="text-text">{new Date(selectedComplaint.createdAt).toLocaleDateString()}</span></div>
+                  <div><span className="text-muted block text-xs">Time:</span> <span className="text-text">{new Date(selectedComplaint.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span></div>
                 </div>
-              )}
+              </div>
             </div>
 
-            {selectedComplaint.status !== 'RESOLVED' && (
-              <form onSubmit={handleReplySubmit} className="mt-4 pt-4 border-top" style={{ borderTop: '1px solid var(--color-border)' }}>
-                <div className="form-group mb-3">
-                  <label className="form-label">Reply & Resolve</label>
+            {/* Description */}
+            <div className="p-3 rounded-lg text-xs sm:text-sm border mb-3" style={{ borderColor: 'var(--color-border)', backgroundColor: 'var(--color-background)' }}>
+              <div className="text-xs uppercase font-bold text-muted mb-1.5 tracking-wider">Description</div>
+              <p className="text-text whitespace-pre-wrap leading-relaxed">{selectedComplaint.description}</p>
+            </div>
+
+            {/* Admin Reply */}
+            {selectedComplaint.adminReply && (
+              <div className="p-3 rounded-lg text-xs sm:text-sm border mb-3" style={{ backgroundColor: 'rgba(16, 185, 129, 0.05)', borderColor: 'var(--color-success)' }}>
+                <div className="text-xs uppercase font-bold text-success mb-1.5 tracking-wider">Admin Reply</div>
+                <p className="text-text whitespace-pre-wrap leading-relaxed">{selectedComplaint.adminReply}</p>
+              </div>
+            )}
+
+            {/* Action Form or Footer */}
+            {selectedComplaint.status !== 'RESOLVED' ? (
+              <form onSubmit={handleReplySubmit} className="pt-2" style={{ borderTop: '1px solid var(--color-border)' }}>
+                <div className="mb-3">
+                  <label className="block text-xs font-bold uppercase text-muted mb-1.5">Reply & Resolve</label>
                   <textarea 
-                    className="form-input" 
-                    rows="3" 
+                    className="form-input text-xs sm:text-sm w-full" 
+                    rows="2" 
                     value={replyText}
                     onChange={e => setReplyText(e.target.value)}
                     placeholder="Enter your response to the guest..."
                     required
                   ></textarea>
                 </div>
-                <div className="flex flex-col sm:flex-row gap-2">
-                  <button type="button" onClick={() => handleUpdateStatus(selectedComplaint.id, 'IN_PROGRESS')} className="btn btn-secondary flex-1">
+                <div className="flex flex-col sm:flex-row justify-end items-stretch sm:items-center gap-2">
+                  <button 
+                    type="button" 
+                    onClick={() => handleUpdateStatus(selectedComplaint.id, 'IN_PROGRESS')} 
+                    className="btn btn-secondary text-xs sm:text-sm py-1.5 px-3"
+                  >
                     Mark In Progress
                   </button>
-                  <button type="submit" disabled={isReplying} className="btn btn-success flex-1" style={{ backgroundColor: 'var(--color-success)', color: 'white' }}>
-                    <CheckCircle size={16} className="inline mr-1" /> {isReplying ? 'Resolving...' : 'Resolve Complaint'}
+                  <button 
+                    type="submit" 
+                    disabled={isReplying} 
+                    className="btn btn-success text-xs sm:text-sm py-1.5 px-3 flex items-center justify-center gap-1" 
+                    style={{ backgroundColor: 'var(--color-success)', color: 'white' }}
+                  >
+                    <CheckCircle size={14} /> {isReplying ? 'Resolving...' : 'Resolve Complaint'}
+                  </button>
+                  <button 
+                    type="button" 
+                    onClick={() => setSelectedComplaint(null)} 
+                    className="btn btn-secondary text-xs sm:text-sm py-1.5 px-4"
+                  >
+                    Close
                   </button>
                 </div>
               </form>
-            )}
-            
-            {selectedComplaint.status === 'RESOLVED' && (
-              <button onClick={() => setSelectedComplaint(null)} className="btn btn-secondary w-full mt-4">Close</button>
+            ) : (
+              <div className="flex justify-end pt-2" style={{ borderTop: '1px solid var(--color-border)' }}>
+                <button 
+                  onClick={() => setSelectedComplaint(null)} 
+                  className="btn btn-secondary text-xs sm:text-sm py-1.5 px-4"
+                >
+                  Close
+                </button>
+              </div>
             )}
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { Eye, EyeOff } from 'lucide-react';
+import { Eye, EyeOff, RefreshCw, AlertCircle, CheckCircle } from 'lucide-react';
 import { API_BASE_URL } from '../../config/api';
 
 export default function Login({ isAdmin = false, isTeacher = false }) {
@@ -19,6 +19,43 @@ export default function Login({ isAdmin = false, isTeacher = false }) {
 
   const { login, user } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+
+  // Handle direct password reset link from email (Requirement 2)
+  useEffect(() => {
+    const isReset = searchParams.get('reset') === 'true';
+    const emailParam = searchParams.get('email');
+    const otpParam = searchParams.get('otp');
+
+    if (isReset && emailParam && otpParam) {
+      setResetEmail(emailParam);
+      setOtp(otpParam);
+      setIsLoading(true);
+
+      (async () => {
+        try {
+          const response = await fetch(`${API_BASE_URL}/api/auth/verify-otp`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: emailParam.trim(), otp: otpParam.trim() })
+          });
+          const data = await response.json();
+          if (response.ok) {
+            setResetState('newPassword');
+            setResetMessage({ type: 'success', text: 'Email link verified! Enter your new password below.' });
+          } else {
+            setResetState('otp');
+            setResetMessage({ type: 'error', text: data.error || 'Reset link expired. Please enter the OTP code manually.' });
+          }
+        } catch (err) {
+          setResetState('otp');
+          setResetMessage({ type: 'error', text: 'Could not connect to backend server. Please verify OTP manually.' });
+        } finally {
+          setIsLoading(false);
+        }
+      })();
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     if (user) {
@@ -126,8 +163,8 @@ export default function Login({ isAdmin = false, isTeacher = false }) {
   const handleResetPassword = async (e) => {
     e.preventDefault();
     setResetMessage({ type: '', text: '' });
-    if (newPassword.length < 6) {
-      setResetMessage({ type: 'error', text: 'Password must be at least 6 characters.' });
+    if (newPassword.length < 8) {
+      setResetMessage({ type: 'error', text: 'Password must be at least 8 characters.' });
       return;
     }
     setIsLoading(true);
@@ -169,12 +206,13 @@ export default function Login({ isAdmin = false, isTeacher = false }) {
             </div>
 
             {resetMessage.text && (
-              <div className="mb-4 p-3 rounded" style={{ 
+              <div className="mb-4 p-3 rounded flex items-center gap-2" style={{ 
                 backgroundColor: resetMessage.type === 'error' ? 'rgba(239, 68, 68, 0.1)' : 'rgba(16, 185, 129, 0.1)', 
                 color: resetMessage.type === 'error' ? 'var(--color-danger)' : 'var(--color-success)', 
                 border: `1px solid ${resetMessage.type === 'error' ? 'var(--color-danger)' : 'var(--color-success)'}` 
               }}>
-                {resetMessage.text}
+                {resetMessage.type === 'error' ? <AlertCircle size={18} className="flex-shrink-0" /> : <CheckCircle size={18} className="flex-shrink-0" />}
+                <span className="text-sm font-medium">{resetMessage.text}</span>
               </div>
             )}
 
@@ -185,12 +223,18 @@ export default function Login({ isAdmin = false, isTeacher = false }) {
                   <input 
                     id="resetEmail" type="email" className="form-input" 
                     value={resetEmail} onChange={(e) => setResetEmail(e.target.value)}
-                    placeholder="name@example.com" required
+                    placeholder="example@domain.com" required
                     autoComplete="off"
+                    style={{ minHeight: '44px' }}
                   />
                 </div>
-                <button type="submit" className="btn btn-primary w-full mt-4" disabled={isLoading}>
-                  {isLoading ? 'Sending OTP...' : 'Send OTP'}
+                <button type="submit" className="btn btn-primary w-full mt-4 flex items-center justify-center gap-2" disabled={isLoading} style={{ minHeight: '44px' }}>
+                  {isLoading ? (
+                    <>
+                      <RefreshCw size={18} className="animate-spin" />
+                      <span>Sending OTP...</span>
+                    </>
+                  ) : 'Send OTP'}
                 </button>
               </form>
             )}
@@ -205,15 +249,20 @@ export default function Login({ isAdmin = false, isTeacher = false }) {
                     className="form-input text-center font-bold" 
                     value={otp} 
                     onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                    placeholder="123456" 
+                    placeholder="Enter 6-digit code" 
                     required 
                     maxLength="6"
                     autoComplete="off"
-                    style={{ letterSpacing: '6px', fontSize: '1.25rem', textAlign: 'center' }}
+                    style={{ letterSpacing: '6px', fontSize: '1.25rem', textAlign: 'center', minHeight: '44px' }}
                   />
                 </div>
-                <button type="submit" className="btn btn-primary w-full mt-4" disabled={isLoading || otp.length !== 6}>
-                  {isLoading ? 'Verifying OTP...' : 'Verify OTP'}
+                <button type="submit" className="btn btn-primary w-full mt-4 flex items-center justify-center gap-2" disabled={isLoading || otp.length !== 6} style={{ minHeight: '44px' }}>
+                  {isLoading ? (
+                    <>
+                      <RefreshCw size={18} className="animate-spin" />
+                      <span>Verifying OTP...</span>
+                    </>
+                  ) : 'Verify OTP'}
                 </button>
                 <div className="mt-4 text-center">
                   <button 
@@ -221,7 +270,7 @@ export default function Login({ isAdmin = false, isTeacher = false }) {
                     onClick={handleSendOtp} 
                     disabled={isLoading}
                     className="text-primary text-sm font-medium" 
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', minHeight: '44px' }}
                   >
                     Didn't receive code? Resend OTP
                   </button>
@@ -236,12 +285,19 @@ export default function Login({ isAdmin = false, isTeacher = false }) {
                   <input 
                     id="newPassword" type="password" className="form-input" 
                     value={newPassword} onChange={(e) => setNewPassword(e.target.value)}
-                    required minLength="6"
+                    placeholder="At least 8 chars"
+                    required minLength="8"
                     autoComplete="new-password"
+                    style={{ minHeight: '44px' }}
                   />
                 </div>
-                <button type="submit" className="btn btn-primary w-full mt-4" disabled={isLoading}>
-                  {isLoading ? 'Resetting...' : 'Reset Password'}
+                <button type="submit" className="btn btn-primary w-full mt-4 flex items-center justify-center gap-2" disabled={isLoading} style={{ minHeight: '44px' }}>
+                  {isLoading ? (
+                    <>
+                      <RefreshCw size={18} className="animate-spin" />
+                      <span>Resetting...</span>
+                    </>
+                  ) : 'Reset Password'}
                 </button>
               </form>
             )}
@@ -250,7 +306,7 @@ export default function Login({ isAdmin = false, isTeacher = false }) {
               <button 
                 onClick={resetForgotPasswordFlow} 
                 className="btn btn-secondary"
-                style={{ padding: '0.4rem 1rem', fontSize: '0.875rem' }}
+                style={{ padding: '0.5rem 1.25rem', fontSize: '0.875rem', minHeight: '44px' }}
               >
                 Back to Login
               </button>
@@ -269,8 +325,9 @@ export default function Login({ isAdmin = false, isTeacher = false }) {
             </div>
 
             {error && (
-              <div className="mb-4 p-3 rounded" style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)', color: 'var(--color-danger)', border: '1px solid var(--color-danger)' }}>
-                {error}
+              <div className="mb-4 p-3 rounded flex items-center gap-2" style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)', color: 'var(--color-danger)', border: '1px solid var(--color-danger)' }}>
+                <AlertCircle size={18} className="flex-shrink-0" />
+                <span className="text-sm font-medium">{error}</span>
               </div>
             )}
 
@@ -283,7 +340,9 @@ export default function Login({ isAdmin = false, isTeacher = false }) {
                   className="form-input" 
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
+                  placeholder="example@domain.com"
                   required
+                  style={{ minHeight: '44px' }}
                 />
               </div>
 
@@ -294,7 +353,7 @@ export default function Login({ isAdmin = false, isTeacher = false }) {
                     type="button" 
                     onClick={openForgotPassword}
                     className="btn btn-secondary"
-                    style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem' }}
+                    style={{ padding: '0.25rem 0.6rem', fontSize: '0.75rem', minHeight: '32px' }}
                   >
                     Forgot password?
                   </button>
@@ -306,13 +365,29 @@ export default function Login({ isAdmin = false, isTeacher = false }) {
                     className="form-input"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
+                    placeholder="Enter your password"
                     required
-                    style={{ width: '100%', paddingRight: '40px' }}
+                    style={{ width: '100%', paddingRight: '44px', minHeight: '44px' }}
                   />
                   <button 
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-muted)' }}
+                    style={{ 
+                      position: 'absolute', 
+                      right: '0', 
+                      top: '0', 
+                      bottom: '0', 
+                      width: '44px', 
+                      height: '44px', 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      justifyContent: 'center', 
+                      background: 'none', 
+                      border: 'none', 
+                      cursor: 'pointer', 
+                      color: 'var(--color-muted)' 
+                    }}
+                    aria-label={showPassword ? "Hide password" : "Show password"}
                   >
                     {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                   </button>
@@ -321,10 +396,16 @@ export default function Login({ isAdmin = false, isTeacher = false }) {
 
               <button 
                 type="submit" 
-                className="btn btn-primary w-full mt-4"
+                className="btn btn-primary w-full mt-4 flex items-center justify-center gap-2"
                 disabled={isLoading}
+                style={{ minHeight: '44px' }}
               >
-                {isLoading ? 'Logging in...' : 'Login'}
+                {isLoading ? (
+                  <>
+                    <RefreshCw size={18} className="animate-spin" />
+                    <span>Logging in...</span>
+                  </>
+                ) : 'Login'}
               </button>
             </form>
 

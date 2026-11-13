@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
-import { bookingService } from '../../services/bookingService';
+import { createPortal } from 'react-dom';
+import { bookingService, sortBookingsNewestFirst } from '../../services/bookingService';
 import { roomService } from '../../services/roomService';
-import { Eye, Check, X, Search, Filter, XCircle, DoorOpen, Trash2 } from 'lucide-react';
+import { Eye, SlidersHorizontal, Check, X, Search, Filter, XCircle, DoorOpen, Trash2 } from 'lucide-react';
 import { API_BASE_URL } from '../../config/api';
 
 const parseDateTime = (dateStr, timeStr, defaultTime = '12:00') => {
@@ -62,6 +63,7 @@ export default function ManageBookings() {
   const [bookings, setBookings] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [filter, setFilter] = useState('ALL'); // ALL, PENDING, APPROVED, CANCELLED
+  const [searchTerm, setSearchTerm] = useState('');
   const [selectedBooking, setSelectedBooking] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
@@ -73,11 +75,23 @@ export default function ManageBookings() {
     };
   }, []);
 
+  // Lock body scroll when modal is open so window never shifts or scrolls
+  useEffect(() => {
+    if (selectedBooking) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [selectedBooking]);
+
   const fetchBookings = async () => {
     setIsLoading(true);
     try {
       const data = await bookingService.getAllBookings();
-      setBookings(data);
+      setBookings(sortBookingsNewestFirst(data));
     } catch (err) {
       console.error(err);
     } finally {
@@ -114,6 +128,22 @@ export default function ManageBookings() {
             alert("Booking rejected.");
           }
 
+          // Dispatch Admin Rejection Notification email from workmail.naim@gmail.com
+          try {
+            fetch(`${API_BASE_URL}/api/email/admin-rejection-notice`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                bookingId: id,
+                guestEmail: bookingTarget?.applicantEmail || bookingTarget?.email || bookingTarget?.users?.email,
+                guestName: bookingTarget?.applicantName || 'Guest',
+                rejectionReason: 'Room capacity unavailable or official university reservation',
+                refundStatus: isPaid ? 'REFUNDED' : 'NOT_APPLICABLE',
+                totalAmount: bookingTarget?.totalAmount
+              })
+            }).catch(e => console.warn('Admin rejection email dispatch notice:', e));
+          } catch (e) {}
+
           if (bookingTarget?.assignedRoom) {
             await roomService.updateRoomStatus(bookingTarget.assignedRoom, 'available');
           }
@@ -134,6 +164,24 @@ export default function ManageBookings() {
           if (bookingTarget?.assignedRoom) {
             await roomService.syncRoomAvailability();
           }
+
+          // Dispatch Admin Approval Notification email from workmail.naim@gmail.com
+          try {
+            fetch(`${API_BASE_URL}/api/email/admin-approval-notice`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                bookingId: id,
+                guestEmail: bookingTarget?.applicantEmail || bookingTarget?.email || bookingTarget?.users?.email,
+                guestName: bookingTarget?.applicantName || 'Guest',
+                assignedRoom: bookingTarget?.assignedRoom,
+                requestedRoomType: bookingTarget?.requestedRoomType,
+                checkInDate: bookingTarget?.checkInDate,
+                checkOutDate: bookingTarget?.checkOutDate,
+                totalAmount: bookingTarget?.totalAmount
+              })
+            }).catch(e => console.warn('Admin approval email dispatch notice:', e));
+          } catch (e) {}
 
           setBookings(bookings.map(b => b.id === id ? { ...b, ...update } : b));
           if (selectedBooking && selectedBooking.id === id) {
@@ -167,25 +215,51 @@ export default function ManageBookings() {
   };
 
 
-  const filteredBookings = bookings.filter(b => {
-    if (filter === 'ALL') return true;
+  const filteredBookings = sortBookingsNewestFirst(bookings.filter(b => {
+    let matchesFilter = true;
     if (filter === 'REJECTED') {
-      return b.approvalStatus === 'REJECTED' || b.approvalStatus === 'CANCELLED' || b.bookingStatus === 'CANCELLED';
+      matchesFilter = b.approvalStatus === 'REJECTED' || b.approvalStatus === 'CANCELLED' || b.bookingStatus === 'CANCELLED';
+    } else if (filter === 'PENDING_APPROVAL') {
+      matchesFilter = b.approvalStatus === 'PENDING_APPROVAL' && b.bookingStatus !== 'CANCELLED' && b.paymentStatus !== 'REFUNDED';
+    } else if (filter !== 'ALL') {
+      matchesFilter = b.approvalStatus === filter;
     }
-    if (filter === 'PENDING_APPROVAL') {
-      return b.approvalStatus === 'PENDING_APPROVAL' && b.bookingStatus !== 'CANCELLED' && b.paymentStatus !== 'REFUNDED';
-    }
-    return b.approvalStatus === filter;
-  });
+
+    if (!matchesFilter) return false;
+
+    if (!searchTerm.trim()) return true;
+    const q = searchTerm.toLowerCase();
+    return (
+      (b.id || '').toLowerCase().includes(q) ||
+      (b.applicantName || '').toLowerCase().includes(q) ||
+      (b.department || '').toLowerCase().includes(q) ||
+      (b.mobileNumber || '').toLowerCase().includes(q) ||
+      (b.assignedRoom || '').toLowerCase().includes(q) ||
+      (b.checkInDate || '').toLowerCase().includes(q)
+    );
+  }));
 
   return (
     <div className="container">
-      <h1 className="text-2xl font-bold mb-6">Manage Bookings</h1>
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold">Manage Bookings</h1>
+        <p className="text-muted text-sm">Review, approve, or reject guest bookings</p>
+        <div className="notice-box-green">
+          <SlidersHorizontal size={15} className="flex-shrink-0" />
+          <span>To Review Application Approval / Rejection Click the Option Button</span>
+        </div>
+      </div>
 
       <div className="card mb-6 flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-4">
         <div className="flex items-center gap-2 w-full sm:max-w-md">
           <Search className="text-muted flex-shrink-0" size={20} />
-          <input type="text" placeholder="Search by ID or Name..." className="form-input w-full" />
+          <input 
+            type="text" 
+            placeholder="Search by ID, Name, Room, or Date..." 
+            className="form-input w-full" 
+            value={searchTerm}
+            onChange={e => setSearchTerm(e.target.value)}
+          />
         </div>
         <div className="flex items-center gap-2 w-full sm:w-auto">
           <Filter className="text-muted flex-shrink-0" size={20} />
@@ -238,11 +312,15 @@ export default function ManageBookings() {
                       ) : booking.checkInDate.replace(/-/g, '/')
                     ) : 'N/A'}
                   </td>
-                  <td className="p-3 text-sm font-medium">
+                  <td className="p-3 text-sm font-semibold">
                     {booking.assignedRoom ? (
-                      <span className="text-primary">{booking.assignedRoom}</span>
+                      <span className="text-primary">
+                        {booking.assignedRoom.toLowerCase().startsWith('room')
+                          ? booking.assignedRoom
+                          : `Room ${booking.assignedRoom}`}
+                      </span>
                     ) : (
-                      <span className="text-muted">Not assigned</span>
+                      <span className="text-muted font-normal text-xs">Not assigned</span>
                     )}
                   </td>
                   <td className="p-3">
@@ -251,7 +329,7 @@ export default function ManageBookings() {
                     ) : (
                       <div className="flex flex-col gap-1 items-start">
                         <span className={`badge ${booking.approvalStatus === 'APPROVED' ? 'badge-success' : booking.approvalStatus === 'PENDING_APPROVAL' ? 'badge-warning' : 'badge-danger'}`}>
-                          {booking.approvalStatus.replace(/_/g, ' ')}
+                          {(booking.approvalStatus || 'PENDING').replace(/_/g, ' ')}
                         </span>
                         {isBookingExpired(booking) && (
                           <span className="badge" style={{ fontSize: '0.65rem', backgroundColor: 'rgba(107, 114, 128, 0.15)', color: '#6B7280' }}>
@@ -270,10 +348,10 @@ export default function ManageBookings() {
                     <div className="flex justify-center flex-wrap gap-2">
                       <button 
                         onClick={() => setSelectedBooking(booking)}
-                        className="btn btn-success" 
-                        style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}
+                        className="btn btn-option hover-scale" 
+                        title="View booking options and details"
                       >
-                        <Eye size={14} /> Details
+                        <SlidersHorizontal size={14} /> Option
                       </button>
                     </div>
                   </td>
@@ -284,101 +362,199 @@ export default function ManageBookings() {
         </table>
       </div>
 
-      {/* Details Modal */}
-      {selectedBooking && (() => {
-        const isModalRefundedOrCancelled = selectedBooking.bookingStatus === 'CANCELLED' || 
-                                           selectedBooking.paymentStatus === 'REFUNDED' || 
-                                           selectedBooking.approvalStatus === 'CANCELLED';
-        return (
-          <div style={{
-            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-            backgroundColor: 'rgba(0, 0, 0, 0.5)', zIndex: 100,
-            display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px'
-          }}>
-            <div className="card animate-fade-in" style={{ width: '100%', maxWidth: '650px', maxHeight: '90vh', overflowY: 'auto' }}>
-              <div className="flex justify-between items-center mb-4 pb-2" style={{ borderBottom: '1px solid var(--color-border)' }}>
-                <h2 className="text-xl font-bold">Booking Details: {selectedBooking.id}</h2>
-                <button 
-                  onClick={() => setSelectedBooking(null)}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-muted)' }}
-                >
-                  <XCircle size={24} />
-                </button>
-              </div>
-              
-              <div className="flex flex-col gap-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm bg-gray-50 p-4 rounded-lg" style={{ backgroundColor: 'var(--color-background)' }}>
-                  <div><strong className="text-muted block text-xs uppercase mb-1">Applicant Name</strong> {selectedBooking.applicantName}</div>
-                  <div><strong className="text-muted block text-xs uppercase mb-1">Mobile Number</strong> {selectedBooking.mobileNumber}</div>
-                  <div><strong className="text-muted block text-xs uppercase mb-1">Designation</strong> {selectedBooking.designation}</div>
-                  <div><strong className="text-muted block text-xs uppercase mb-1">Department</strong> {selectedBooking.department}</div>
-                  <div><strong className="text-muted block text-xs uppercase mb-1">Stay Purpose</strong> {selectedBooking.stayPurpose}</div>
+      {/* Details Modal rendered via createPortal at exact middle position */}
+      {selectedBooking && typeof document !== 'undefined' && createPortal(
+        (() => {
+          const isModalRefundedOrCancelled = selectedBooking.bookingStatus === 'CANCELLED' || 
+                                             selectedBooking.paymentStatus === 'REFUNDED' || 
+                                             selectedBooking.approvalStatus === 'CANCELLED';
+          return (
+            <div 
+              onClick={(e) => {
+                if (e.target === e.currentTarget) setSelectedBooking(null);
+              }}
+              style={{
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                width: '100vw',
+                height: '100vh',
+                backgroundColor: 'rgba(0, 0, 0, 0.65)',
+                backdropFilter: 'blur(3px)',
+                zIndex: 99999,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '1rem',
+                margin: 0
+              }}
+            >
+              <div 
+                className="card animate-fade-in" 
+                style={{ 
+                  width: '100%', 
+                  maxWidth: '720px', 
+                  maxHeight: '92vh',
+                  overflowY: 'auto',
+                  borderRadius: '16px',
+                  boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
+                  padding: '1.25rem'
+                }}
+              >
+                {/* Header */}
+                <div className="flex justify-between items-center mb-3 pb-2" style={{ borderBottom: '1px solid var(--color-border)' }}>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h2 className="text-lg sm:text-xl font-bold">Booking Details: <span className="text-primary">{selectedBooking.id}</span></h2>
+                    <span className={`badge ${selectedBooking.approvalStatus === 'APPROVED' ? 'badge-success' : selectedBooking.approvalStatus === 'REJECTED' ? 'badge-danger' : 'badge-warning'}`}>
+                      {(selectedBooking.approvalStatus || 'PENDING').replace(/_/g, ' ')}
+                    </span>
+                    <span className={`badge ${selectedBooking.paymentStatus === 'PAID' || selectedBooking.paymentStatus === 'COMPLETED' ? 'badge-success' : selectedBooking.paymentStatus === 'REFUNDED' ? 'badge-danger' : 'badge-warning'}`}>
+                      {selectedBooking.paymentStatus}
+                    </span>
+                  </div>
+                  <button 
+                    onClick={() => setSelectedBooking(null)}
+                    className="p-1 rounded-full hover:bg-gray-100 transition"
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-muted)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                    aria-label="Close"
+                  >
+                    <X size={20} />
+                  </button>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm p-4 border rounded-lg" style={{ borderColor: 'var(--color-border)' }}>
-                  <div><strong className="text-muted block text-xs uppercase mb-1">Check-in</strong> {selectedBooking.checkInDate} at {selectedBooking.checkInTime}</div>
-                  <div><strong className="text-muted block text-xs uppercase mb-1">Check-out</strong> {selectedBooking.checkOutDate} at {selectedBooking.checkOutTime}</div>
-                  <div><strong className="text-muted block text-xs uppercase mb-1">Room Type</strong> {selectedBooking.requestedRoomType.replace(/_/g, ' ')}</div>
-                  <div><strong className="text-muted block text-xs uppercase mb-1">Assigned Room</strong> {selectedBooking.assignedRoom ? <span className="font-bold text-primary">{selectedBooking.assignedRoom}</span> : 'Pending Allocation'}</div>
-                  <div><strong className="text-muted block text-xs uppercase mb-1">Total Days</strong> {selectedBooking.totalDays}</div>
-                  <div><strong className="text-muted block text-xs uppercase mb-1">Total Amount</strong> ৳{selectedBooking.totalAmount}</div>
-                </div>
+                {/* 2 Balanced Side-by-Side Cards (Stack on mobile) */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3 text-xs sm:text-sm">
+                  {/* Card 1: Applicant Details */}
+                  <div className="p-3 rounded-lg" style={{ backgroundColor: 'var(--color-background)', border: '1px solid var(--color-border)' }}>
+                    <div className="text-xs uppercase font-bold text-muted mb-2 tracking-wider">Applicant Details</div>
+                    <div className="grid grid-cols-2 gap-y-2 gap-x-2">
+                      <div><span className="text-muted block text-xs">Name:</span> <strong className="text-text">{selectedBooking.applicantName}</strong></div>
+                      <div><span className="text-muted block text-xs">Mobile:</span> <strong className="text-text">{selectedBooking.mobileNumber}</strong></div>
+                      <div><span className="text-muted block text-xs">Designation:</span> <span className="text-text">{selectedBooking.designation || 'Guest'}</span></div>
+                      <div><span className="text-muted block text-xs">Department:</span> <span className="text-text">{selectedBooking.department || 'N/A'}</span></div>
+                      <div className="col-span-2"><span className="text-muted block text-xs">Stay Purpose:</span> <span className="text-text">{selectedBooking.stayPurpose || 'Official / Guest'}</span></div>
+                    </div>
+                  </div>
 
-                <div>
-                  <strong className="text-muted block text-xs uppercase mb-2">Guest Information</strong>
-                  {selectedBooking.guests && selectedBooking.guests.map((g, i) => (
-                    <div key={i} className="text-sm mb-2 p-3 rounded border" style={{ borderColor: 'var(--color-border)' }}>
-                      <div className="font-bold mb-1">{g.name} <span className="text-muted font-normal">({g.relationship})</span></div>
-                      <div className="flex gap-4">
-                        <span>NID: {g.nid || 'N/A'}</span>
-                        <span>Mobile: {g.mobile || 'N/A'}</span>
+                  {/* Card 2: Stay & Room Allocation */}
+                  <div className="p-3 rounded-lg" style={{ backgroundColor: 'var(--color-background)', border: '1px solid var(--color-border)' }}>
+                    <div className="text-xs uppercase font-bold text-muted mb-2 tracking-wider">Stay & Room Details</div>
+                    <div className="grid grid-cols-2 gap-y-2 gap-x-2">
+                      <div>
+                        <span className="text-muted block text-xs">Check-in:</span>
+                        <strong className="text-text">{selectedBooking.checkInDate}</strong> <span className="text-xs text-muted">({selectedBooking.checkInTime})</span>
+                      </div>
+                      <div>
+                        <span className="text-muted block text-xs">Check-out:</span>
+                        <strong className="text-text">{selectedBooking.checkOutDate}</strong> <span className="text-xs text-muted">({selectedBooking.checkOutTime})</span>
+                      </div>
+                      <div>
+                        <span className="text-muted block text-xs">Room No:</span>
+                        <strong className="text-primary font-bold">
+                          {selectedBooking.assignedRoom 
+                            ? (selectedBooking.assignedRoom.toLowerCase().startsWith('room') ? selectedBooking.assignedRoom : `Room ${selectedBooking.assignedRoom}`)
+                            : 'Pending Allocation'}
+                        </strong>
+                      </div>
+                      <div>
+                        <span className="text-muted block text-xs">Room Type:</span>
+                        <span className="text-text">{(selectedBooking.requestedRoomType || 'Standard Room').replace(/_/g, ' ')}</span>
+                      </div>
+                      <div>
+                        <span className="text-muted block text-xs">Duration:</span>
+                        <span className="text-text">{selectedBooking.totalDays} Night(s)</span>
+                      </div>
+                      <div>
+                        <span className="text-muted block text-xs">Total Amount:</span>
+                        <strong className="text-success font-bold text-sm sm:text-base">৳{selectedBooking.totalAmount}</strong>
                       </div>
                     </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="mt-6 flex flex-col sm:flex-row justify-between items-center gap-3 pt-4" style={{ borderTop: '1px solid var(--color-border)' }}>
-                <div className="flex items-center gap-2 flex-wrap">
-                  {isModalRefundedOrCancelled && (
-                    <span className="badge badge-danger text-xs font-semibold">
-                      Booking Cancelled & Refunded (No approval action permitted)
-                    </span>
-                  )}
-                  {isBookingExpired(selectedBooking) && (
-                    <span className="badge" style={{ backgroundColor: 'rgba(107, 114, 128, 0.15)', color: '#6B7280', fontSize: '0.75rem' }}>
-                      Stay Expired
-                    </span>
-                  )}
+                  </div>
                 </div>
 
-                <div className="flex items-center gap-3 flex-wrap">
-                  {selectedBooking.approvalStatus === 'PENDING_APPROVAL' && !isModalRefundedOrCancelled && (
-                    <>
-                      <button onClick={() => { handleAction(selectedBooking.id, 'APPROVE'); setSelectedBooking(null); }} className="btn btn-success" style={{ backgroundColor: 'var(--color-success)', color: 'white' }}>Approve</button>
-                      <button onClick={() => { handleAction(selectedBooking.id, 'REJECT'); setSelectedBooking(null); }} className="btn btn-danger">Reject</button>
-                    </>
+                {/* Guest Information */}
+                <div className="p-2.5 rounded-lg text-xs sm:text-sm border mb-3" style={{ borderColor: 'var(--color-border)' }}>
+                  <div className="text-xs uppercase font-bold text-muted mb-1.5 tracking-wider">Guest Information</div>
+                  {selectedBooking.guests && selectedBooking.guests.length > 0 ? (
+                    <div className="flex flex-col gap-1.5">
+                      {selectedBooking.guests.map((g, i) => (
+                        <div key={i} className="flex flex-wrap items-center justify-between gap-1 py-1 px-2 rounded" style={{ backgroundColor: 'var(--color-background)' }}>
+                          <div>
+                            <strong>{g.name}</strong> <span className="text-muted text-xs">({g.relationship || 'Guest'})</span>
+                          </div>
+                          <div className="text-xs text-muted flex gap-3">
+                            <span>NID: <strong className="text-text">{g.nid || 'N/A'}</strong></span>
+                            <span>Mobile: <strong className="text-text">{g.mobile || 'N/A'}</strong></span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted italic">No additional guests listed with this booking.</p>
                   )}
+                </div>
 
-                  {isBookingExpired(selectedBooking) && (
-                    <button
-                      onClick={() => handleDeleteBooking(selectedBooking.id)}
-                      disabled={isDeleting}
-                      className="btn btn-danger flex items-center gap-1.5"
-                      style={{ padding: '0.45rem 0.9rem', fontSize: '0.85rem' }}
-                      title="Permanently delete this expired booking from the database"
+                {/* Footer Controls */}
+                <div className="flex flex-col sm:flex-row justify-between items-center gap-2 pt-2" style={{ borderTop: '1px solid var(--color-border)' }}>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {isModalRefundedOrCancelled && (
+                      <span className="badge badge-danger text-xs font-semibold">
+                        Cancelled / Refunded
+                      </span>
+                    )}
+                    {isBookingExpired(selectedBooking) && (
+                      <span className="badge" style={{ backgroundColor: 'rgba(107, 114, 128, 0.15)', color: '#6B7280', fontSize: '0.72rem' }}>
+                        Stay Expired
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto justify-end">
+                    {selectedBooking.approvalStatus === 'PENDING_APPROVAL' && !isModalRefundedOrCancelled && (
+                      <>
+                        <button 
+                          onClick={() => { handleAction(selectedBooking.id, 'APPROVE'); setSelectedBooking(null); }} 
+                          className="btn btn-success text-xs sm:text-sm py-1.5 px-3 flex items-center gap-1" 
+                          style={{ backgroundColor: 'var(--color-success)', color: 'white' }}
+                        >
+                          <Check size={14} /> Approve
+                        </button>
+                        <button 
+                          onClick={() => { handleAction(selectedBooking.id, 'REJECT'); setSelectedBooking(null); }} 
+                          className="btn btn-danger text-xs sm:text-sm py-1.5 px-3 flex items-center gap-1"
+                        >
+                          <X size={14} /> Reject
+                        </button>
+                      </>
+                    )}
+
+                    {isBookingExpired(selectedBooking) && (
+                      <button
+                        onClick={() => handleDeleteBooking(selectedBooking.id)}
+                        disabled={isDeleting}
+                        className="btn btn-danger text-xs sm:text-sm py-1.5 px-3 flex items-center gap-1"
+                        title="Permanently delete this expired booking"
+                      >
+                        <Trash2 size={14} /> {isDeleting ? 'Deleting...' : 'Delete'}
+                      </button>
+                    )}
+
+                    <button 
+                      className="btn btn-secondary text-xs sm:text-sm py-1.5 px-4" 
+                      onClick={() => setSelectedBooking(null)}
                     >
-                      <Trash2 size={16} /> {isDeleting ? 'Deleting...' : 'Delete Booking'}
+                      Close
                     </button>
-                  )}
-
-                  <button className="btn btn-secondary" onClick={() => setSelectedBooking(null)}>Close</button>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
-        );
-      })()}
+          );
+        })(),
+        document.body
+      )}
 
 
     </div>

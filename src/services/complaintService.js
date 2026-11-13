@@ -5,9 +5,12 @@ const mapComplaint = (c) => ({
   userId: c.user_id,
   bookingId: c.booking_id,
   category: c.category,
+  subject: c.category || c.subject || 'Complaint',
+  roomNumber: c.room_number || '',
   description: c.description,
   status: c.status,
   priority: c.priority,
+  adminReply: c.admin_reply || '',
   createdAt: c.created_at
 });
 
@@ -44,7 +47,7 @@ export const complaintService = {
       id: `COMP-${Date.now().toString().slice(-6)}`,
       user_id: complaintData.userId,
       booking_id: complaintData.bookingId,
-      category: complaintData.category,
+      category: complaintData.category || complaintData.subject || 'General',
       description: complaintData.description,
       status: 'Open',
       priority: complaintData.priority || 'Normal',

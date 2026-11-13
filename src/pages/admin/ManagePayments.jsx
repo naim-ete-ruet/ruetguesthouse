@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { bookingService } from '../../services/bookingService';
+import { bookingService, sortBookingsNewestFirst } from '../../services/bookingService';
 import { Search, Filter, DollarSign, CheckCircle, AlertCircle } from 'lucide-react';
 
 export default function ManagePayments() {
@@ -16,7 +16,7 @@ export default function ManagePayments() {
     setIsLoading(true);
     try {
       const data = await bookingService.getAllBookings();
-      setBookings(data);
+      setBookings(sortBookingsNewestFirst(data));
     } catch (err) {
       console.error(err);
     } finally {
@@ -40,7 +40,7 @@ export default function ManagePayments() {
     }
   };
 
-  const filteredBookings = bookings.filter(b => {
+  const filteredBookings = sortBookingsNewestFirst(bookings.filter(b => {
     let matchesFilter = true;
     if (filter === 'PAID') {
       matchesFilter = (b.paymentStatus === 'PAID' || b.paymentStatus === 'COMPLETED') && b.bookingStatus !== 'CANCELLED';
@@ -53,7 +53,7 @@ export default function ManagePayments() {
                           (b.applicantName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
                           (b.checkInDate || '').toLowerCase().includes(searchTerm.toLowerCase());
     return matchesFilter && matchesSearch;
-  });
+  }));
 
   // Calculate stats
   const totalRevenue = bookings

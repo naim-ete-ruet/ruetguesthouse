@@ -16,8 +16,11 @@ export default function ManageUsers() {
     setIsLoading(true);
     try {
       const data = await authService.getAllUsers();
-      // Add a mock status field to users for UI purposes
-      const usersWithStatus = data.map(u => ({ ...u, accountStatus: 'ACTIVE' }));
+      const suspendedList = JSON.parse(localStorage.getItem('ruet_suspended_users') || '[]');
+      const usersWithStatus = data.map(u => ({
+        ...u,
+        accountStatus: suspendedList.includes(u.id) ? 'SUSPENDED' : 'ACTIVE'
+      }));
       setUsers(usersWithStatus);
     } catch (err) {
       console.error(err);
@@ -28,12 +31,20 @@ export default function ManageUsers() {
 
   const handleSuspend = (id) => {
     if (window.confirm("Are you sure you want to suspend this user? They will not be able to log in.")) {
+      const suspendedList = JSON.parse(localStorage.getItem('ruet_suspended_users') || '[]');
+      if (!suspendedList.includes(id)) {
+        suspendedList.push(id);
+        localStorage.setItem('ruet_suspended_users', JSON.stringify(suspendedList));
+      }
       setUsers(users.map(u => u.id === id ? { ...u, accountStatus: 'SUSPENDED' } : u));
       alert("User suspended successfully");
     }
   };
 
   const handleActivate = (id) => {
+    const suspendedList = JSON.parse(localStorage.getItem('ruet_suspended_users') || '[]');
+    const updated = suspendedList.filter(item => item !== id);
+    localStorage.setItem('ruet_suspended_users', JSON.stringify(updated));
     setUsers(users.map(u => u.id === id ? { ...u, accountStatus: 'ACTIVE' } : u));
   };
 
@@ -121,18 +132,18 @@ export default function ManageUsers() {
                       u.accountStatus === 'ACTIVE' ? (
                         <button 
                           onClick={() => handleSuspend(u.id)} 
-                          className="btn btn-danger" 
-                          style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem', backgroundColor: 'transparent', color: 'var(--color-danger)', border: '1px solid var(--color-danger)' }}
+                          className="btn btn-danger flex items-center gap-1.5" 
+                          style={{ minHeight: '34px', padding: '0.35rem 0.75rem', fontSize: '0.8rem', backgroundColor: 'transparent', color: 'var(--color-danger)', border: '1px solid var(--color-danger)' }}
                         >
-                          <UserX size={14} /> Suspend
+                          <UserX size={15} /> Suspend
                         </button>
                       ) : (
                         <button 
                           onClick={() => handleActivate(u.id)} 
-                          className="btn btn-success" 
-                          style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem', backgroundColor: 'var(--color-success)', color: 'white' }}
+                          className="btn btn-success flex items-center gap-1.5" 
+                          style={{ minHeight: '34px', padding: '0.35rem 0.75rem', fontSize: '0.8rem', backgroundColor: 'var(--color-success)', color: 'white' }}
                         >
-                          <User size={14} /> Activate
+                          <User size={15} /> Activate
                         </button>
                       )
                     )}

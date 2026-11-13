@@ -97,8 +97,8 @@ export default function StudentProfile() {
       showNotification('error', "New passwords do not match!");
       return;
     }
-    if (passwordForm.new.length < 6) {
-      showNotification('error', "Password must be at least 6 characters.");
+    if (passwordForm.new.length < 8) {
+      showNotification('error', "Password must be at least 8 characters.");
       return;
     }
     
@@ -215,7 +215,7 @@ export default function StudentProfile() {
                     className="form-input" 
                     value={profileData.name} 
                     onChange={e => setProfileData({...profileData, name: e.target.value})} 
-                    placeholder="Enter full name"
+                    placeholder="Your Full Name"
                   />
                 ) : (
                   <div className="font-medium p-2 bg-gray-50 rounded" style={{ backgroundColor: 'rgba(0,0,0,0.02)' }}>{profileData.name}</div>
@@ -230,7 +230,7 @@ export default function StudentProfile() {
                     className="form-input" 
                     value={profileData.department} 
                     onChange={e => setProfileData({...profileData, department: e.target.value})} 
-                    placeholder="e.g. ETE, CSE, EEE"
+                    placeholder="Your Department"
                   />
                 ) : (
                   <div className="font-medium p-2 bg-gray-50 rounded" style={{ backgroundColor: 'rgba(0,0,0,0.02)' }}>{profileData.department || 'N/A'}</div>
@@ -246,6 +246,7 @@ export default function StudentProfile() {
                     value={profileData.email} 
                     disabled 
                     title="Account email address cannot be modified" 
+                    placeholder="example@domain.com"
                     style={{ backgroundColor: '#f3f4f6', cursor: 'not-allowed' }} 
                   />
                 ) : (
@@ -261,7 +262,7 @@ export default function StudentProfile() {
                     className="form-input" 
                     value={profileData.mobile} 
                     onChange={e => setProfileData({...profileData, mobile: e.target.value})} 
-                    placeholder="Enter mobile number"
+                    placeholder="Your Mobile Number"
                   />
                 ) : (
                   <div className="font-medium p-2 bg-gray-50 rounded" style={{ backgroundColor: 'rgba(0,0,0,0.02)' }}>{profileData.mobile || 'Not set'}</div>
@@ -276,7 +277,7 @@ export default function StudentProfile() {
                     className="form-input" 
                     value={profileData.designation} 
                     onChange={e => setProfileData({...profileData, designation: e.target.value})} 
-                    placeholder="e.g. Professor, Lecturer, Student"
+                    placeholder="Your Designation"
                   />
                 ) : (
                   <div className="font-medium p-2 bg-gray-50 rounded" style={{ backgroundColor: 'rgba(0,0,0,0.02)' }}>{profileData.designation || 'Student'}</div>
@@ -328,12 +329,12 @@ export default function StudentProfile() {
                 </div>
                 <div className="form-group mb-3">
                   <label className="form-label">New Password</label>
-                  <input type="password" required className="form-input" 
+                  <input type="password" required minLength={8} placeholder="At least 8 chars" className="form-input" 
                     value={passwordForm.new} onChange={e => setPasswordForm({...passwordForm, new: e.target.value})} />
                 </div>
                 <div className="form-group mb-4">
                   <label className="form-label">Confirm New Password</label>
-                  <input type="password" required className="form-input" 
+                  <input type="password" required minLength={8} placeholder="Re-enter password" className="form-input" 
                     value={passwordForm.confirm} onChange={e => setPasswordForm({...passwordForm, confirm: e.target.value})} />
                 </div>
                 <div className="flex gap-3">

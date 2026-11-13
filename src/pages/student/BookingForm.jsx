@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { bookingService } from '../../services/bookingService';
-import { AlertCircle, Plus, Trash2, CheckCircle, FileText, CreditCard } from 'lucide-react';
+import { AlertCircle, Plus, Trash2, CheckCircle, FileText, CreditCard, RefreshCw } from 'lucide-react';
 import { authService } from '../../services/authService';
 import { roomService } from '../../services/roomService';
 import { API_BASE_URL } from '../../config/api';
@@ -179,6 +179,11 @@ export default function BookingForm() {
       return "Please select check-in and check-out dates.";
     }
 
+    const todayStr = new Date().toISOString().split('T')[0];
+    if (dates.checkInDate < todayStr) {
+      return "Check-in date cannot be in the past. Please select today or a future date.";
+    }
+
     if (new Date(dates.checkOutDate) <= new Date(dates.checkInDate)) {
       return "Checkout date must be after check-in date.";
     }
@@ -242,7 +247,27 @@ export default function BookingForm() {
       const newBooking = await bookingService.createBooking(bookingData);
 
       if (user.role === 'teacher') {
-        alert("Booking created successfully! Redirecting to payment...");
+        // Dispatch admin approval request for teacher booking from workmail.naim@gmail.com
+        try {
+          fetch(`${API_BASE_URL}/api/email/admin-approval-request`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              bookingId: newBooking?.id,
+              applicantName: applicantInfo.applicantName || user.name,
+              applicantRole: 'Teacher',
+              applicantEmail: user.email,
+              applicantMobile: applicantInfo.mobileNumber,
+              requestedRoomType: roomType,
+              checkInDate: dates.checkInDate,
+              checkOutDate: dates.checkOutDate,
+              totalAmount: totalFare,
+              paymentStatus: 'PENDING'
+            })
+          }).catch(e => console.warn('Admin approval request dispatch error:', e));
+        } catch (e) {}
+
+        alert("Booking created successfully! Forwarded to Guest House Admin for review. Redirecting to payment...");
         navigate('/teacher/payment');
       } else {
         const selectedTeacher = teachers.find(t => t.id === selectedTeacherId);
@@ -341,7 +366,7 @@ export default function BookingForm() {
               <input type="text" className="form-input" required
                 value={applicantInfo.department}
                 onChange={e => setApplicantInfo({ ...applicantInfo, department: e.target.value.toUpperCase() })}
-                placeholder={user?.role !== 'teacher' ? "Auto-filled" : "e.g., CSE"}
+                placeholder={user?.role !== 'teacher' ? "Auto-filled" : "Your Department"}
                 readOnly={user?.role !== 'teacher'}
                 style={user?.role !== 'teacher' ? { backgroundColor: 'rgba(0,0,0,0.05)' } : {}}
               />
@@ -437,7 +462,7 @@ export default function BookingForm() {
                     <label className="form-label">
                       Relationship to Applicant (সম্পর্ক) <span className="text-danger">*</span>
                     </label>
-                    <input type="text" className="form-input" required placeholder="e.g., Self / Colleague / Relative"
+                    <input type="text" className="form-input" required placeholder="Self / Colleague / Relative"
                       value={guest.relationship} onChange={e => handleGuestChange(index, 'relationship', e.target.value)} />
                   </div>
                 </div>
@@ -513,7 +538,7 @@ export default function BookingForm() {
                 <div>
                   <label className="form-label">Type</label>
                   <input type="text" className="form-input" readOnly
-                    value={roomType ? roomType.replace(/_/g, ' ') : roomDetails.requestedRoomType.replace(/_/g, ' ')}
+                    value={roomType ? roomType.replace(/_/g, ' ') : (roomDetails.requestedRoomType || 'Standard Room').replace(/_/g, ' ')}
                     style={{ backgroundColor: 'rgba(0,0,0,0.05)', cursor: 'not-allowed' }}
                   />
                 </div>
@@ -619,9 +644,14 @@ export default function BookingForm() {
         )}
 
         <div className="flex flex-col sm:flex-row justify-end gap-3 sm:gap-4 border-top pt-6" style={{ borderTop: '1px solid var(--color-border)' }}>
-          <button type="button" onClick={() => navigate(user.role === 'teacher' ? '/teacher/dashboard' : '/student/dashboard')} className="btn btn-secondary w-full sm:w-auto text-center">Cancel</button>
-          <button type="submit" className="btn btn-primary w-full sm:w-auto text-center" disabled={isSubmitting || !selectedRoom}>
-            {isSubmitting ? 'Processing...' : (
+          <button type="button" onClick={() => navigate(user.role === 'teacher' ? '/teacher/dashboard' : '/student/dashboard')} className="btn btn-secondary w-full sm:w-auto text-center" style={{ minHeight: '44px' }}>Cancel</button>
+          <button type="submit" className="btn btn-primary w-full sm:w-auto text-center flex items-center justify-center gap-2" disabled={isSubmitting || !selectedRoom} style={{ minHeight: '44px' }}>
+            {isSubmitting ? (
+              <>
+                <RefreshCw size={18} className="animate-spin" />
+                <span>Processing...</span>
+              </>
+            ) : (
               user.role === 'teacher' ? (
                 <span className="flex items-center justify-center gap-2"><CreditCard size={18} /> Pay Now</span>
               ) : 'Submit Application'

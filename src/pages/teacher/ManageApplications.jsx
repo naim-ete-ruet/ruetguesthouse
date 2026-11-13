@@ -1,14 +1,16 @@
 import { useState, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { useAuth } from '../../context/AuthContext';
-import { bookingService } from '../../services/bookingService';
+import { bookingService, sortBookingsNewestFirst } from '../../services/bookingService';
 import { API_BASE_URL } from '../../config/api';
-import { Eye, Check, X, Search, Filter, XCircle } from 'lucide-react';
+import { Eye, SlidersHorizontal, Check, X, Search, Filter, XCircle } from 'lucide-react';
 
 export default function TeacherManageApplications() {
   const { user } = useAuth();
   const [applications, setApplications] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [filter, setFilter] = useState('ALL');
+  const [searchTerm, setSearchTerm] = useState('');
   const [selectedApp, setSelectedApp] = useState(null);
   const [rejectionReason, setRejectionReason] = useState('');
   const [isRejecting, setIsRejecting] = useState(false);
@@ -30,7 +32,7 @@ export default function TeacherManageApplications() {
         return true;
       });
       
-      setApplications(teacherApps);
+      setApplications(sortBookingsNewestFirst(teacherApps));
     } catch (err) {
       console.error(err);
     } finally {
@@ -41,6 +43,18 @@ export default function TeacherManageApplications() {
   useEffect(() => {
     fetchApplications();
   }, [fetchApplications]);
+
+  // Lock body scroll when modal is open so window never shifts or scrolls
+  useEffect(() => {
+    if (selectedApp) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [selectedApp]);
 
   const handleApprove = async (id) => {
     if (window.confirm("Approve this application and forward for payment?")) {
@@ -110,6 +124,24 @@ export default function TeacherManageApplications() {
           alert("Application rejected.");
         }
         
+        // Dispatch rejection email to student from workmail.naim@gmail.com
+        try {
+          fetch(`${API_BASE_URL}/api/email/teacher-rejection-notice`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              bookingId: id,
+              studentEmail: app?.studentEmail || app?.applicantEmail,
+              studentName: app?.applicantName || 'Student',
+              teacherName: user?.name || 'Department Teacher',
+              rejectionReason,
+              requestedRoomType: app?.requestedRoomType,
+              checkInDate: app?.checkInDate,
+              checkOutDate: app?.checkOutDate
+            })
+          }).catch(err => console.warn('Teacher rejection email dispatch notice:', err));
+        } catch (e) {}
+
         // Local state update
         setApplications(apps => apps.map(app => 
           app.id === id ? { ...app, approvalStatus: 'REJECTED_BY_TEACHER', bookingStatus: 'CANCELLED', paymentStatus: isPaid ? 'REFUNDED' : app.paymentStatus, rejectionReason } : app
@@ -125,13 +157,24 @@ export default function TeacherManageApplications() {
     }
   };
 
-  const filteredApps = applications.filter(app => {
-    if (filter === 'ALL') return true;
-    if (filter === 'PENDING') return app.approvalStatus === 'PENDING_TEACHER_APPROVAL';
-    if (filter === 'APPROVED') return ['PENDING_PAYMENT', 'PENDING_ADMIN_APPROVAL', 'APPROVED'].includes(app.approvalStatus);
-    if (filter === 'REJECTED') return app.approvalStatus === 'REJECTED_BY_TEACHER';
-    return true;
-  });
+  const filteredApps = sortBookingsNewestFirst(applications.filter(app => {
+    let matchesFilter = true;
+    if (filter === 'PENDING') matchesFilter = app.approvalStatus === 'PENDING_TEACHER_APPROVAL';
+    else if (filter === 'APPROVED') matchesFilter = ['PENDING_PAYMENT', 'PENDING_ADMIN_APPROVAL', 'APPROVED'].includes(app.approvalStatus);
+    else if (filter === 'REJECTED') matchesFilter = app.approvalStatus === 'REJECTED_BY_TEACHER';
+
+    if (!matchesFilter) return false;
+
+    if (!searchTerm.trim()) return true;
+    const q = searchTerm.toLowerCase();
+    return (
+      (app.id || '').toLowerCase().includes(q) ||
+      (app.applicantName || '').toLowerCase().includes(q) ||
+      (app.department || '').toLowerCase().includes(q) ||
+      (app.checkInDate || '').toLowerCase().includes(q) ||
+      (app.assignedRoom || '').toLowerCase().includes(q)
+    );
+  }));
 
   return (
     <div className="container">
@@ -139,13 +182,23 @@ export default function TeacherManageApplications() {
         <div>
           <h1 className="text-2xl font-bold">Applications for Review</h1>
           <p className="text-muted">Manage applications assigned to you</p>
+          <div className="notice-box-green">
+            <SlidersHorizontal size={15} className="flex-shrink-0" />
+            <span>To Review Application Approval / Rejection Click the Option Button</span>
+          </div>
         </div>
       </div>
 
       <div className="card mb-6 flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-4">
         <div className="flex items-center gap-2 w-full sm:max-w-md">
           <Search className="text-muted flex-shrink-0" size={20} />
-          <input type="text" placeholder="Search applications..." className="form-input w-full" />
+          <input 
+            type="text" 
+            placeholder="Search by ID, Student, or Date..." 
+            className="form-input w-full" 
+            value={searchTerm}
+            onChange={e => setSearchTerm(e.target.value)}
+          />
         </div>
         <div className="flex items-center gap-2 w-full sm:w-auto">
           <Filter className="text-muted flex-shrink-0" size={20} />
@@ -164,7 +217,7 @@ export default function TeacherManageApplications() {
             <tr style={{ borderBottom: '2px solid var(--color-border)' }}>
               <th className="p-3">App ID</th>
               <th className="p-3">Student</th>
-              <th className="p-3">Room</th>
+              <th className="p-3">Room No.</th>
               <th className="p-3">Dates</th>
               <th className="p-3">Status</th>
               <th className="p-3 text-center">Actions</th>
@@ -174,7 +227,7 @@ export default function TeacherManageApplications() {
             {isLoading ? (
               <tr><td colSpan="6" className="text-center p-4">Loading applications...</td></tr>
             ) : filteredApps.length === 0 ? (
-              <tr><td colSpan="6" className="text-center p-4 text-muted">No applications found assigned to you.</td></tr>
+              <tr><td colSpan="6" className="text-center p-4 text-muted">No applications found matching your criteria.</td></tr>
             ) : filteredApps.map(app => (
               <tr key={app.id} style={{ borderBottom: '1px solid var(--color-border)' }}>
                 <td className="p-3 font-medium text-primary">{app.id}</td>
@@ -182,8 +235,16 @@ export default function TeacherManageApplications() {
                   <div className="font-bold">{app.applicantName}</div>
                   <div className="text-muted text-xs">{app.designation || 'Student'} • {app.department?.toUpperCase()}</div>
                 </td>
-                <td className="p-3 text-sm">
-                  {app.requestedRoomType.replace(/_/g, ' ')}
+                <td className="p-3 text-sm font-semibold">
+                  {app.assignedRoom ? (
+                    <span className="text-primary">
+                      {app.assignedRoom.toLowerCase().startsWith('room') 
+                        ? app.assignedRoom 
+                        : `Room ${app.assignedRoom}`}
+                    </span>
+                  ) : (
+                    <span className="text-muted font-normal text-xs">Not assigned</span>
+                  )}
                 </td>
                 <td className="p-3 text-sm">
                   {app.checkInDate} to {app.checkOutDate}
@@ -193,27 +254,18 @@ export default function TeacherManageApplications() {
                     ['PENDING_PAYMENT', 'PENDING_ADMIN_APPROVAL', 'APPROVED'].includes(app.approvalStatus) ? 'badge-success' : 
                     app.approvalStatus === 'PENDING_TEACHER_APPROVAL' ? 'badge-warning' : 'badge-danger'
                   }`}>
-                    {app.approvalStatus.replace(/_/g, ' ')}
+                    {(app.approvalStatus || 'PENDING').replace(/_/g, ' ')}
                   </span>
                 </td>
                 <td className="p-3 text-center">
-                  <div className="flex justify-center gap-2">
+                  <div className="flex justify-center">
                     <button 
                       onClick={() => setSelectedApp(app)}
-                      className="btn btn-secondary" 
-                      style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}
+                      className="btn btn-option hover-scale" 
+                      title="View application options and details"
                     >
-                      <Eye size={14} /> Review
+                      <SlidersHorizontal size={14} /> Option
                     </button>
-                    {app.approvalStatus === 'PENDING_TEACHER_APPROVAL' && (
-                      <button 
-                        onClick={() => handleApprove(app.id)} 
-                        className="btn btn-success" 
-                        style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem', backgroundColor: 'var(--color-success)', color: 'white' }}
-                      >
-                        <Check size={14} /> Approve
-                      </button>
-                    )}
                   </div>
                 </td>
               </tr>
@@ -222,78 +274,188 @@ export default function TeacherManageApplications() {
         </table>
       </div>
 
-      {/* Details Modal */}
-      {selectedApp && (
-        <div style={{
-          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-          backgroundColor: 'rgba(0, 0, 0, 0.5)', zIndex: 100,
-          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px'
-        }}>
-          <div className="card animate-fade-in" style={{ width: '100%', maxWidth: '650px', maxHeight: '90vh', overflowY: 'auto' }}>
-            <div className="flex justify-between items-center mb-4 pb-2" style={{ borderBottom: '1px solid var(--color-border)' }}>
-              <h2 className="text-xl font-bold">Review Application: {selectedApp.id}</h2>
+      {/* Details Modal rendered via createPortal at exact middle position */}
+      {selectedApp && typeof document !== 'undefined' && createPortal(
+        <div 
+          onClick={(e) => {
+            if (e.target === e.currentTarget) { setSelectedApp(null); setIsRejecting(false); }
+          }}
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            width: '100vw',
+            height: '100vh',
+            backgroundColor: 'rgba(0, 0, 0, 0.65)',
+            backdropFilter: 'blur(3px)',
+            zIndex: 99999,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '1rem',
+            margin: 0
+          }}
+        >
+          <div 
+            className="card animate-fade-in" 
+            style={{ 
+              width: '100%', 
+              maxWidth: '700px', 
+              maxHeight: '92vh', 
+              overflowY: 'auto',
+              borderRadius: '16px',
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
+              padding: '1.25rem'
+            }}
+          >
+            {/* Header */}
+            <div className="flex justify-between items-center mb-3 pb-2" style={{ borderBottom: '1px solid var(--color-border)' }}>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-lg sm:text-xl font-bold">Review Application: <span className="text-primary">{selectedApp.id}</span></h2>
+                <span className={`badge ${
+                  ['PENDING_PAYMENT', 'PENDING_ADMIN_APPROVAL', 'APPROVED'].includes(selectedApp.approvalStatus) ? 'badge-success' : 
+                  selectedApp.approvalStatus === 'PENDING_TEACHER_APPROVAL' ? 'badge-warning' : 'badge-danger'
+                }`}>
+                  {(selectedApp.approvalStatus || 'PENDING').replace(/_/g, ' ')}
+                </span>
+              </div>
               <button 
                 onClick={() => { setSelectedApp(null); setIsRejecting(false); }}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-muted)' }}
+                className="p-1 rounded-full hover:bg-gray-100 transition"
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-muted)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                aria-label="Close"
               >
-                <XCircle size={24} />
+                <X size={20} />
               </button>
             </div>
             
-            <div className="flex flex-col gap-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm bg-gray-50 p-4 rounded-lg" style={{ backgroundColor: 'var(--color-background)' }}>
-                <div><strong className="text-muted block text-xs uppercase mb-1">Applicant Name</strong> {selectedApp.applicantName}</div>
-                <div><strong className="text-muted block text-xs uppercase mb-1">Email / ID</strong> {selectedApp.mobileNumber}</div>
-                <div><strong className="text-muted block text-xs uppercase mb-1">Designation</strong> {selectedApp.designation || 'Student'}</div>
-                <div><strong className="text-muted block text-xs uppercase mb-1">Department</strong> {selectedApp.department?.toUpperCase()}</div>
-                <div className="col-span-2"><strong className="text-muted block text-xs uppercase mb-1">Stay Purpose</strong> {selectedApp.stayPurpose}</div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm p-4 border rounded-lg" style={{ borderColor: 'var(--color-border)' }}>
-                <div><strong className="text-muted block text-xs uppercase mb-1">Check-in</strong> {selectedApp.checkInDate} at {selectedApp.checkInTime}</div>
-                <div><strong className="text-muted block text-xs uppercase mb-1">Check-out</strong> {selectedApp.checkOutDate} at {selectedApp.checkOutTime}</div>
-                <div><strong className="text-muted block text-xs uppercase mb-1">Room Type</strong> {selectedApp.requestedRoomType.replace(/_/g, ' ')}</div>
-                <div><strong className="text-muted block text-xs uppercase mb-1">Total Days</strong> {selectedApp.totalDays}</div>
-              </div>
-
-              {selectedApp.rejectionReason && (
-                <div className="p-4 rounded border border-danger bg-danger bg-opacity-10">
-                  <strong className="text-danger block text-sm mb-1">Rejection Reason:</strong>
-                  <p className="text-sm">{selectedApp.rejectionReason}</p>
+            {/* 2 Balanced Side-by-Side Cards (Stack on mobile) */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3 text-xs sm:text-sm">
+              {/* Card 1: Student Details */}
+              <div className="p-3 rounded-lg" style={{ backgroundColor: 'var(--color-background)', border: '1px solid var(--color-border)' }}>
+                <div className="text-xs uppercase font-bold text-muted mb-2 tracking-wider">Student Details</div>
+                <div className="grid grid-cols-2 gap-y-2 gap-x-2">
+                  <div><span className="text-muted block text-xs">Name:</span> <strong className="text-text">{selectedApp.applicantName}</strong></div>
+                  <div><span className="text-muted block text-xs">Mobile / Roll:</span> <strong className="text-text">{selectedApp.mobileNumber}</strong></div>
+                  <div><span className="text-muted block text-xs">Designation:</span> <span className="text-text">{selectedApp.designation || 'Student'}</span></div>
+                  <div><span className="text-muted block text-xs">Department:</span> <span className="text-text">{selectedApp.department?.toUpperCase() || 'N/A'}</span></div>
+                  <div className="col-span-2"><span className="text-muted block text-xs">Stay Purpose:</span> <span className="text-text">{selectedApp.stayPurpose || 'Official / Guest'}</span></div>
                 </div>
-              )}
+              </div>
 
-              {isRejecting && selectedApp.approvalStatus === 'PENDING_TEACHER_APPROVAL' && (
-                <div className="mt-4 p-4 rounded border" style={{ borderColor: 'var(--color-warning)', backgroundColor: 'rgba(245, 158, 11, 0.05)' }}>
-                  <label className="block text-sm font-medium mb-2">Reason for rejection:</label>
-                  <textarea 
-                    className="form-input w-full mb-3" 
-                    rows="3" 
-                    value={rejectionReason}
-                    onChange={(e) => setRejectionReason(e.target.value)}
-                    placeholder="Enter reason for rejecting this application..."
-                  ></textarea>
-                  <div className="flex justify-end gap-2">
-                    <button onClick={() => setIsRejecting(false)} className="btn btn-secondary text-sm py-1 px-3">Cancel</button>
-                    <button onClick={() => handleReject(selectedApp.id)} className="btn btn-danger text-sm py-1 px-3">Confirm Reject</button>
+              {/* Card 2: Stay & Room Details */}
+              <div className="p-3 rounded-lg" style={{ backgroundColor: 'var(--color-background)', border: '1px solid var(--color-border)' }}>
+                <div className="text-xs uppercase font-bold text-muted mb-2 tracking-wider">Stay & Room Details</div>
+                <div className="grid grid-cols-2 gap-y-2 gap-x-2">
+                  <div>
+                    <span className="text-muted block text-xs">Check-in:</span>
+                    <strong className="text-text">{selectedApp.checkInDate}</strong> <span className="text-xs text-muted">({selectedApp.checkInTime})</span>
+                  </div>
+                  <div>
+                    <span className="text-muted block text-xs">Check-out:</span>
+                    <strong className="text-text">{selectedApp.checkOutDate}</strong> <span className="text-xs text-muted">({selectedApp.checkOutTime})</span>
+                  </div>
+                  <div>
+                    <span className="text-muted block text-xs">Room No:</span>
+                    <strong className="text-primary font-bold">
+                      {selectedApp.assignedRoom 
+                        ? (selectedApp.assignedRoom.toLowerCase().startsWith('room') ? selectedApp.assignedRoom : `Room ${selectedApp.assignedRoom}`)
+                        : 'Pending Allocation'}
+                    </strong>
+                  </div>
+                  <div>
+                    <span className="text-muted block text-xs">Room Type:</span>
+                    <span className="text-text">{(selectedApp.requestedRoomType || 'Standard Room').replace(/_/g, ' ')}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted block text-xs">Duration:</span>
+                    <span className="text-text">{selectedApp.totalDays} Night(s)</span>
+                  </div>
+                  <div>
+                    <span className="text-muted block text-xs">Total Amount:</span>
+                    <strong className="text-success font-bold text-sm sm:text-base">৳{selectedApp.totalAmount}</strong>
                   </div>
                 </div>
-              )}
+              </div>
             </div>
 
+            {/* Guest Information */}
+            {selectedApp.guests && selectedApp.guests.length > 0 && (
+              <div className="p-2.5 rounded-lg text-xs sm:text-sm border mb-3" style={{ borderColor: 'var(--color-border)' }}>
+                <div className="text-xs uppercase font-bold text-muted mb-1.5 tracking-wider">Guest Information</div>
+                <div className="flex flex-col gap-1.5">
+                  {selectedApp.guests.map((g, i) => (
+                    <div key={i} className="flex flex-wrap items-center justify-between gap-1 py-1 px-2 rounded" style={{ backgroundColor: 'var(--color-background)' }}>
+                      <div>
+                        <strong>{g.name}</strong> <span className="text-muted text-xs">({g.relationship || 'Guest'})</span>
+                      </div>
+                      <div className="text-xs text-muted flex gap-3">
+                        <span>NID: <strong className="text-text">{g.nid || 'N/A'}</strong></span>
+                        <span>Mobile: <strong className="text-text">{g.mobile || 'N/A'}</strong></span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {selectedApp.rejectionReason && (
+              <div className="p-2.5 rounded border border-danger mb-3" style={{ backgroundColor: 'rgba(239, 68, 68, 0.08)' }}>
+                <strong className="text-danger block text-xs font-semibold mb-1">Rejection Reason:</strong>
+                <p className="text-xs sm:text-sm">{selectedApp.rejectionReason}</p>
+              </div>
+            )}
+
+            {isRejecting && selectedApp.approvalStatus === 'PENDING_TEACHER_APPROVAL' && (
+              <div className="p-3 rounded border mb-3" style={{ borderColor: 'var(--color-warning)', backgroundColor: 'rgba(245, 158, 11, 0.05)' }}>
+                <label className="block text-xs font-bold uppercase text-muted mb-1.5">Reason for rejection:</label>
+                <textarea 
+                  className="form-input w-full mb-2 text-xs sm:text-sm" 
+                  rows="2" 
+                  value={rejectionReason}
+                  onChange={(e) => setRejectionReason(e.target.value)}
+                  placeholder="Enter reason for rejecting this application..."
+                ></textarea>
+                <div className="flex justify-end gap-2">
+                  <button onClick={() => setIsRejecting(false)} className="btn btn-secondary text-xs py-1 px-3">Cancel</button>
+                  <button onClick={() => handleReject(selectedApp.id)} className="btn btn-danger text-xs py-1 px-3">Confirm Reject</button>
+                </div>
+              </div>
+            )}
+
+            {/* Footer Actions */}
             {!isRejecting && (
-              <div className="mt-6 flex justify-end gap-3 pt-4" style={{ borderTop: '1px solid var(--color-border)' }}>
+              <div className="flex justify-end gap-2 pt-2" style={{ borderTop: '1px solid var(--color-border)' }}>
                 {selectedApp.approvalStatus === 'PENDING_TEACHER_APPROVAL' && (
                   <>
-                    <button onClick={() => { handleApprove(selectedApp.id); setSelectedApp(null); }} className="btn btn-success" style={{ backgroundColor: 'var(--color-success)', color: 'white' }}>Approve</button>
-                    <button onClick={() => setIsRejecting(true)} className="btn btn-danger">Reject</button>
+                    <button 
+                      onClick={() => { handleApprove(selectedApp.id); setSelectedApp(null); }} 
+                      className="btn btn-success text-xs sm:text-sm py-1.5 px-3 flex items-center gap-1" 
+                      style={{ backgroundColor: 'var(--color-success)', color: 'white' }}
+                    >
+                      <Check size={14} /> Approve
+                    </button>
+                    <button 
+                      onClick={() => setIsRejecting(true)} 
+                      className="btn btn-danger text-xs sm:text-sm py-1.5 px-3 flex items-center gap-1"
+                    >
+                      <X size={14} /> Reject
+                    </button>
                   </>
                 )}
-                <button className="btn btn-secondary" onClick={() => setSelectedApp(null)}>Close</button>
+                <button 
+                  className="btn btn-secondary text-xs sm:text-sm py-1.5 px-4" 
+                  onClick={() => setSelectedApp(null)}
+                >
+                  Close
+                </button>
               </div>
             )}
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

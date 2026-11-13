@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { bookingService } from '../../services/bookingService';
 import { useNavigate } from 'react-router-dom';
-import { CreditCard, CheckCircle, Shield } from 'lucide-react';
+import { CreditCard, CheckCircle, Shield, RefreshCw } from 'lucide-react';
 import { API_BASE_URL } from '../../config/api';
 
 export default function PaymentPage() {
@@ -138,15 +138,17 @@ export default function PaymentPage() {
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted">Room Type</span>
-                    <span className="font-medium">{selectedBooking.requestedRoomType.replace(/_/g, ' ')}</span>
+                    <span className="font-medium">{(selectedBooking.requestedRoomType || 'Standard Room').replace(/_/g, ' ')}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted">Duration</span>
-                    <span className="font-medium">{selectedBooking.totalDays} nights</span>
+                    <span className="font-medium">{selectedBooking.totalDays || 1} nights</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted">Rate</span>
-                    <span className="font-medium">৳{selectedBooking.totalAmount / selectedBooking.totalDays}</span>
+                    <span className="font-medium">
+                      ৳{selectedBooking.totalDays > 0 ? Math.round(selectedBooking.totalAmount / selectedBooking.totalDays) : selectedBooking.totalAmount}
+                    </span>
                   </div>
                   
                   <div className="border-top pt-3 mt-2 flex justify-between items-center" style={{ borderTop: '1px solid var(--color-border)' }}>
@@ -155,11 +157,19 @@ export default function PaymentPage() {
                   </div>
 
                   <button 
-                    className="btn btn-primary w-full mt-6"
+                    className="btn btn-primary w-full mt-6 flex items-center justify-center gap-2"
                     onClick={handlePayment}
                     disabled={isProcessing}
+                    style={{ minHeight: '44px' }}
                   >
-                    {isProcessing ? 'Processing...' : 'Proceed to Secure Payment'}
+                    {isProcessing ? (
+                      <>
+                        <RefreshCw size={16} className="animate-spin" />
+                        <span>Connecting to Gateway...</span>
+                      </>
+                    ) : (
+                      <span>Proceed to Secure Payment</span>
+                    )}
                   </button>
 
                   <div className="flex items-center gap-1 justify-center text-xs text-muted mt-4">

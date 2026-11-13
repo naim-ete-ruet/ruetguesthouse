@@ -4,7 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import { bookingService } from '../../services/bookingService';
 import { mealService } from '../../services/mealService';
 import { supabase } from '../../config/supabaseClient';
-import { AlertCircle, Coffee, Clock, CheckCircle, Trash2, X } from 'lucide-react';
+import { AlertCircle, Coffee, Clock, CheckCircle, Trash2, X, RefreshCw } from 'lucide-react';
 import { API_BASE_URL } from '../../config/api';
 
 export default function BookMeal() {
@@ -28,7 +28,7 @@ export default function BookMeal() {
 
   const fetchUserData = async () => {
     try {
-      const bookings = await bookingService.getStudentBookings(user.id);
+      const bookings = await bookingService.getStudentBookings(user);
       // Only allow meal booking for APPROVED bookings
       setApprovedBookings(bookings.filter(b => b.approvalStatus === 'APPROVED'));
 
@@ -341,8 +341,18 @@ export default function BookMeal() {
                       } (100 Tk per meal)
                     </div>
 
-                    <button type="submit" disabled={isProcessing} className="btn btn-primary w-full flex items-center justify-center gap-2">
-                      {isProcessing ? 'Processing Secure Payment...' : 'Pay & Submit Request'}
+                    <button 
+                      type="submit" 
+                      disabled={isProcessing} 
+                      className="btn btn-primary w-full flex items-center justify-center gap-2"
+                      style={{ minHeight: '44px' }}
+                    >
+                      {isProcessing ? (
+                        <>
+                          <RefreshCw size={18} className="animate-spin" />
+                          <span>Processing Secure Payment...</span>
+                        </>
+                      ) : 'Pay & Submit Request'}
                     </button>
                   </>
                 )}

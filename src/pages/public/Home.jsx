@@ -7,39 +7,68 @@ export default function Home() {
   return (
     <div className="container">
       {/* Hero Section */}
-      <section className="text-center py-8 sm:py-12 px-4 mb-8 sm:mb-12 bg-flow animate-fade-in flex flex-col justify-center items-center" style={{
-        background: 'linear-gradient(135deg, var(--color-primary), #6366F1, var(--color-primary-hover))',
-        color: 'white',
+      <section className="text-center py-10 sm:py-14 px-4 sm:px-8 mb-8 sm:mb-12 animate-fade-in flex flex-col justify-center items-center" style={{
+        backgroundColor: '#0F3A5D',
+        color: '#FFFFFF',
         borderRadius: 'var(--radius-lg)',
-        boxShadow: 'var(--shadow-lg)',
-        minHeight: '220px'
+        boxShadow: '0 20px 25px -5px rgba(15, 58, 93, 0.25), 0 8px 10px -6px rgba(15, 58, 93, 0.2)',
+        border: '1px solid rgba(255, 255, 255, 0.1)',
+        minHeight: '240px'
       }}>
-        <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-3 sm:mb-4">RUET Guest House</h1>
-        <p className="mb-6 sm:mb-8 max-w-2xl mx-auto text-sm sm:text-base" style={{ opacity: 0.9 }}>
-          Welcome to the official guest house booking portal of Rajshahi University of Engineering & Technology.
-          Students and faculty can easily book accommodations for their guests.
+        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold uppercase tracking-wider mb-3" style={{ backgroundColor: 'rgba(255, 255, 255, 0.12)', color: '#FCD34D' }}>
+          Official Accommodation Portal
+        </div>
+        <h1 className="text-2xl sm:text-3xl md:text-4xl font-extrabold mb-3 tracking-tight" style={{ fontFamily: 'var(--font-family-heading)' }}>
+          RUET Guest House
+        </h1>
+        <p className="mb-6 sm:mb-8 max-w-2xl mx-auto text-sm sm:text-base leading-relaxed" style={{ color: '#E2E8F0', opacity: 0.95 }}>
+          Official guest accommodation and reservation facility of Rajshahi University of Engineering & Technology. Providing comfortable, secure stays for visiting faculty, academic guests, and university visitors.
         </p>
         <div className="flex flex-wrap justify-center gap-3 sm:gap-4 w-full">
           {user ? (
             <>
-              <Link to={user.role === 'admin' ? '/admin/dashboard' : '/student/dashboard'} className="btn btn-outline-light hover-scale">
+              <Link 
+                to={user.role === 'admin' ? '/admin/dashboard' : user.role === 'teacher' ? '/teacher/dashboard' : '/student/dashboard'} 
+                className="btn btn-outline-light hover-scale flex items-center justify-center font-medium"
+                style={{ minHeight: '44px', padding: '0.6rem 1.4rem' }}
+              >
                 Go to Dashboard
               </Link>
               {user.role === 'student' && (
-                <Link to="/student/rooms" className="btn hover-scale" style={{ backgroundColor: 'white', color: 'var(--color-primary)' }}>
+                <Link 
+                  to="/student/rooms" 
+                  className="btn hover-scale flex items-center justify-center font-semibold" 
+                  style={{ backgroundColor: '#FFFFFF', color: '#0F3A5D', minHeight: '44px', padding: '0.6rem 1.4rem' }}
+                >
                   Book a Room
                 </Link>
               )}
               {user.role === 'teacher' && (
-                <Link to="/teacher/rooms" className="btn hover-scale" style={{ backgroundColor: 'white', color: 'var(--color-primary)' }}>
+                <Link 
+                  to="/teacher/rooms" 
+                  className="btn hover-scale flex items-center justify-center font-semibold" 
+                  style={{ backgroundColor: '#FFFFFF', color: '#0F3A5D', minHeight: '44px', padding: '0.6rem 1.4rem' }}
+                >
                   Book a Room
                 </Link>
               )}
             </>
           ) : (
             <>
-              <Link to="/register" className="btn hover-scale" style={{ backgroundColor: 'white', color: 'var(--color-primary)' }}>Book a Room</Link>
-              <Link to="/login" className="btn btn-outline-light hover-scale">Login</Link>
+              <Link 
+                to="/register" 
+                className="btn hover-scale flex items-center justify-center font-semibold" 
+                style={{ backgroundColor: '#FFFFFF', color: '#0F3A5D', minHeight: '44px', padding: '0.6rem 1.4rem' }}
+              >
+                Book a Room
+              </Link>
+              <Link 
+                to="/login" 
+                className="btn btn-outline-light hover-scale flex items-center justify-center font-medium" 
+                style={{ minHeight: '44px', padding: '0.6rem 1.4rem' }}
+              >
+                Login
+              </Link>
             </>
           )}
         </div>

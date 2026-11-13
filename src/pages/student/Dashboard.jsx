@@ -94,15 +94,21 @@ export default function StudentDashboard() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
                 <div>
                   <p className="text-xs text-muted mb-1 uppercase tracking-wider">Room</p>
-                  <p className="font-medium">{latestBooking.assignedRoom || 'Pending Assignment'}</p>
-                  <p className="text-sm text-muted">{latestBooking.requestedRoomType.replace(/_/g, ' ')}</p>
+                  <p className="font-medium">
+                    {latestBooking.assignedRoom ? (
+                      latestBooking.assignedRoom.toLowerCase().startsWith('room')
+                        ? latestBooking.assignedRoom
+                        : `Room ${latestBooking.assignedRoom}`
+                    ) : 'Pending Assignment'}
+                  </p>
+                  <p className="text-sm text-muted">{(latestBooking.requestedRoomType || 'Standard Room').replace(/_/g, ' ')}</p>
                 </div>
                 <div>
                   <p className="text-xs text-muted mb-1 uppercase tracking-wider">Approval & Payment</p>
                   <div className="flex flex-col gap-1">
                     <span className="flex items-center gap-1 text-sm">
                       {latestBooking.approvalStatus === 'APPROVED' ? <CheckCircle size={14} className="text-success flex-shrink-0" /> : <Clock size={14} className="text-warning flex-shrink-0" />}
-                      Approval: {latestBooking.approvalStatus.replace(/_/g, ' ')}
+                      Approval: {(latestBooking.approvalStatus || 'PENDING').replace(/_/g, ' ')}
                     </span>
                     <span className="flex items-center gap-1 text-sm">
                       {(latestBooking.paymentStatus === 'PAID' || latestBooking.paymentStatus === 'COMPLETED') ? <CheckCircle size={14} className="text-success flex-shrink-0" /> : <AlertTriangle size={14} className="text-warning flex-shrink-0" />}

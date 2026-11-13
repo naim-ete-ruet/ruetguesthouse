@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { roomService } from '../../services/roomService';
 import { supabase } from '../../config/supabaseClient';
-import { Search, Filter, Edit, Plus, X, Trash2, Save, CheckCircle, AlertCircle, DoorOpen } from 'lucide-react';
+import { Search, Filter, Edit, SlidersHorizontal, Plus, X, Trash2, Save, CheckCircle, AlertCircle, DoorOpen } from 'lucide-react';
 
 const INITIAL_ROOM_FORM = {
   roomNumber: '',
@@ -345,12 +345,11 @@ export default function ManageRooms() {
                 <td className="p-3 text-center">
                   <div className="flex justify-center">
                     <button 
-                      className="btn btn-secondary" 
-                      style={{ padding: '0.35rem 0.85rem', fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                      className="btn btn-option hover-scale" 
                       onClick={() => handleOpenEditModal(room)}
-                      title="Edit Room Details"
+                      title="Manage room options"
                     >
-                      <Edit size={14} /> Edit
+                      <SlidersHorizontal size={14} /> Option
                     </button>
                   </div>
                 </td>
@@ -431,7 +430,7 @@ export default function ManageRooms() {
                   <input 
                     type="text" 
                     className="form-input w-full"
-                    placeholder="e.g. 201, 305"
+                    placeholder="Room Number"
                     value={formData.roomNumber}
                     onChange={(e) => setFormData({ ...formData, roomNumber: e.target.value })}
                     required
@@ -445,7 +444,7 @@ export default function ManageRooms() {
                   <input 
                     type="text" 
                     className="form-input w-full"
-                    placeholder="e.g. 2, 3, 4"
+                    placeholder="Floor Number"
                     value={formData.floor}
                     onChange={(e) => setFormData({ ...formData, floor: e.target.value })}
                     required
@@ -498,13 +497,27 @@ export default function ManageRooms() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold uppercase text-muted mb-1">
-                    Status <span className="text-danger">*</span>
-                  </label>
+                  <div className="flex justify-between items-center mb-1">
+                    <label className="block text-xs font-bold uppercase text-muted">
+                      Status <span className="text-danger">*</span>
+                    </label>
+                    <span className={`badge ${
+                      formData.status === 'available' ? 'badge-success' : 
+                      formData.status === 'occupied' ? 'badge-danger' : 'badge-warning'
+                    }`} style={{ textTransform: 'capitalize', fontSize: '0.72rem', padding: '2px 8px' }}>
+                      {formData.status}
+                    </span>
+                  </div>
                   <select 
                     className="form-select w-full"
                     value={formData.status}
-                    onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+                    disabled
+                    style={{ 
+                      cursor: 'not-allowed', 
+                      backgroundColor: 'var(--color-background)',
+                      opacity: 0.85
+                    }}
+                    title="Room status cannot be edited from dropdown. It can only be set from the bottom 'Set to Maintenance' and 'Set to Available' option."
                   >
                     <option value="available">Available</option>
                     <option value="occupied">Occupied</option>
@@ -561,7 +574,7 @@ export default function ManageRooms() {
                   <input 
                     type="text" 
                     className="form-input w-full"
-                    placeholder="e.g. approximately 6x7 ft"
+                    placeholder="Bed size (approx. 6x7 ft)"
                     value={formData.bedDescription}
                     onChange={(e) => setFormData({ ...formData, bedDescription: e.target.value })}
                   />

@@ -2,13 +2,14 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { complaintService } from '../../services/complaintService';
 import { bookingService } from '../../services/bookingService';
-import { AlertCircle, Plus, CheckCircle, Clock } from 'lucide-react';
+import { AlertCircle, Plus, CheckCircle, Clock, RefreshCw } from 'lucide-react';
 
 export default function Complaints() {
   const { user } = useAuth();
   const [complaints, setComplaints] = useState([]);
   const [userBookings, setUserBookings] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [showForm, setShowForm] = useState(false);
   
   const [formData, setFormData] = useState({
@@ -27,12 +28,12 @@ export default function Complaints() {
     try {
       const [complaintsData, bookingsData] = await Promise.all([
         complaintService.getComplaintsByUser(user.id),
-        bookingService.getBookingsByUser(user.id)
+        bookingService.getUserBookings(user)
       ]);
-      setComplaints(complaintsData);
+      setComplaints(complaintsData || []);
       
       // Filter only approved/active bookings
-      setUserBookings(bookingsData.filter(b => b.approvalStatus === 'APPROVED' || b.bookingStatus === 'ACTIVE'));
+      setUserBookings((bookingsData || []).filter(b => b.approvalStatus === 'APPROVED' || b.bookingStatus === 'CONFIRMED' || b.bookingStatus === 'ACTIVE'));
     } catch (err) {
       console.error(err);
     } finally {
@@ -52,12 +53,13 @@ export default function Complaints() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setIsLoading(true);
+    setIsSubmitting(true);
     try {
       await complaintService.submitComplaint({
         userId: user.id,
         userName: user.name,
         userRole: user.role,
+        category: formData.subject,
         ...formData
       });
       setFormData({ bookingId: '', roomNumber: '', subject: '', description: '' });
@@ -65,7 +67,8 @@ export default function Complaints() {
       await fetchData();
     } catch (err) {
       console.error(err);
-      setIsLoading(false);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -109,7 +112,7 @@ export default function Complaints() {
                   className="form-input" 
                   value={formData.roomNumber} 
                   onChange={e => setFormData({...formData, roomNumber: e.target.value})}
-                  placeholder="e.g. 101"
+                  placeholder="Your Room Number"
                   required
                 />
               </div>
@@ -141,8 +144,20 @@ export default function Complaints() {
             
             <div className="flex justify-end gap-3">
               <button type="button" className="btn btn-secondary" onClick={() => setShowForm(false)}>Cancel</button>
-              <button type="submit" className="btn btn-primary" disabled={isLoading}>
-                {isLoading ? 'Submitting...' : 'Submit Complaint'}
+              <button 
+                type="submit" 
+                className="btn btn-primary flex items-center justify-center gap-2" 
+                disabled={isSubmitting}
+                style={{ minHeight: '44px', minWidth: '140px' }}
+              >
+                {isSubmitting ? (
+                  <>
+                    <RefreshCw size={16} className="animate-spin" />
+                    <span>Submitting...</span>
+                  </>
+                ) : (
+                  <span>Submit Complaint</span>
+                )}
               </button>
             </div>
           </form>
@@ -166,7 +181,7 @@ export default function Complaints() {
                   <div className="flex items-center gap-2 mb-1">
                     <span className="font-bold text-lg">{complaint.subject}</span>
                     <span className={`badge ${complaint.status === 'RESOLVED' ? 'badge-success' : complaint.status === 'IN_PROGRESS' ? 'badge-warning' : 'badge-danger'}`}>
-                      {complaint.status.replace(/_/g, ' ')}
+                      {(complaint.status || 'PENDING').replace(/_/g, ' ')}
                     </span>
                   </div>
                   <div className="text-xs text-muted flex gap-4">

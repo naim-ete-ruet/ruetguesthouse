@@ -20,6 +20,12 @@ dist-ssr
 # Local transactions log
 backend/transactions.json
 
+# Local AI Developer Tools & Skills (Never push to GitHub)
+.agents/
+skills-lock.json
+DESIGN.md
+GEMINI.md
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

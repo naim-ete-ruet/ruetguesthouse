@@ -14,8 +14,8 @@ const mapBookingToCamelCase = (b, guests = []) => ({
   checkOutDate: b.check_out_date,
   checkOutTime: b.check_out_time,
   totalDays: b.total_days,
-  requestedRoomCount: b.requested_room_count,
-  requestedRoomType: b.requested_room_type,
+  requestedRoomCount: b.requested_room_count || 1,
+  requestedRoomType: b.requested_room_type || 'Standard Room',
   stayPurpose: b.stay_purpose,
   assignedRoom: b.assigned_room,
   approvingTeacherId: b.approving_teacher_id,
@@ -37,6 +37,41 @@ const mapBookingToCamelCase = (b, guests = []) => ({
     relationship: g.relationship
   }))
 });
+
+/**
+ * Universal helper to sort booking lists chronologically:
+ * Newest bookings on top, older bookings below.
+ * Considers explicit createdAt, check-in date + check-in time, and ID ties.
+ */
+export const sortBookingsNewestFirst = (list) => {
+  if (!Array.isArray(list)) return [];
+  return [...list].sort((a, b) => {
+    // 1. Explicit createdAt timestamp if present and different
+    if (a.createdAt && b.createdAt && a.createdAt !== b.createdAt) {
+      const diff = new Date(b.createdAt) - new Date(a.createdAt);
+      if (!isNaN(diff) && diff !== 0) return diff;
+    }
+
+    // 2. Chronological check-in date and time (descending: newest first)
+    const dateA = String(a.checkInDate || a.check_in_date || '').replace(/\//g, '-');
+    const dateB = String(b.checkInDate || b.check_in_date || '').replace(/\//g, '-');
+    const timeA = String(a.checkInTime || a.check_in_time || '00:00');
+    const timeB = String(b.checkInTime || b.check_in_time || '00:00');
+
+    const dtA = dateA ? `${dateA}T${timeA.length === 5 ? timeA : '00:00'}` : '';
+    const dtB = dateB ? `${dateB}T${timeB.length === 5 ? timeB : '00:00'}` : '';
+
+    if (dtA && dtB && dtA !== dtB) {
+      const diff = new Date(dtB) - new Date(dtA);
+      if (!isNaN(diff) && diff !== 0) return diff;
+      const strDiff = dtB.localeCompare(dtA);
+      if (strDiff !== 0) return strDiff;
+    }
+
+    // 3. Fallback to ID descending (e.g. BKG-2026-930 > BKG-2026-826)
+    return String(b.id || '').localeCompare(String(a.id || ''), undefined, { numeric: true });
+  });
+};
 
 export const bookingService = {
   async getStudentBookings(userOrId) {
@@ -65,45 +100,22 @@ export const bookingService = {
       throw new Error("Failed to fetch user bookings");
     }
     
-    // Sort logic handled in memory for simplicity just like before
-    return (data || []).map(b => mapBookingToCamelCase(b, b.guests || []));
+    // Map and guarantee newest bookings appear first across all portals
+    const mapped = (data || []).map(b => mapBookingToCamelCase(b, b.guests || []));
+    return sortBookingsNewestFirst(mapped);
   },
 
   getUserBookings(userOrId) {
     return this.getStudentBookings(userOrId);
   },
+
+  getBookingsByUser(userOrId) {
+    return this.getStudentBookings(userOrId);
+  },
   
   async getLatestBooking(userOrId) {
-    let query = supabase.from('bookings').select('*, guests(*)');
-
-    if (typeof userOrId === 'object' && userOrId !== null) {
-      if (userOrId.role === 'teacher') {
-        const filter = userOrId.name 
-          ? `user_id.eq.${userOrId.id},approving_teacher_id.eq.${userOrId.id},applicant_name.eq.${userOrId.name}`
-          : `user_id.eq.${userOrId.id},approving_teacher_id.eq.${userOrId.id}`;
-        query = query.or(filter);
-      } else {
-        query = query.eq('user_id', userOrId.id);
-      }
-    } else if (typeof userOrId === 'string') {
-      if (userOrId.startsWith('teacher_')) {
-        query = query.or(`user_id.eq.${userOrId},approving_teacher_id.eq.${userOrId}`);
-      } else {
-        query = query.eq('user_id', userOrId);
-      }
-    }
-
-    const { data, error } = await query
-      .order('id', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-      
-    if (error) {
-      console.error(error);
-      throw new Error("Failed to fetch latest booking");
-    }
-    
-    return data ? mapBookingToCamelCase(data, data.guests || []) : null;
+    const list = await this.getStudentBookings(userOrId);
+    return list.length > 0 ? list[0] : null;
   },
 
   async getBookingById(id) {
@@ -131,7 +143,9 @@ export const bookingService = {
       throw new Error("Failed to fetch all bookings");
     }
     
-    return data.map(b => mapBookingToCamelCase(b, b.guests || []));
+    // Map and guarantee newest bookings appear first across all portals
+    const mapped = (data || []).map(b => mapBookingToCamelCase(b, b.guests || []));
+    return sortBookingsNewestFirst(mapped);
   },
 
   async createBooking(bookingData) {
