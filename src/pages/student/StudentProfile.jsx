@@ -3,7 +3,7 @@ import { useAuth } from '../../context/AuthContext';
 import { authService } from '../../services/authService';
 import { bookingService } from '../../services/bookingService';
 import { User, Mail, Phone, Book, Lock, Edit3, Save, X, Briefcase, CheckCircle, AlertCircle } from 'lucide-react';
-import { API_BASE_URL } from '../../config/api';
+import { API_BASE_URL, apiFetch } from '../../config/api';
 
 export default function StudentProfile() {
   const { user, updateUserProfile } = useAuth();
@@ -300,7 +300,7 @@ export default function StudentProfile() {
                     onClick={async () => {
                       try {
                         showNotification('success', 'Sending password reset link...');
-                        const response = await fetch(`${API_BASE_URL}/api/auth/forgot-password`, {
+                        const response = await apiFetch('/api/auth/forgot-password', {
                           method: 'POST',
                           headers: { 'Content-Type': 'application/json' },
                           body: JSON.stringify({ email: profileData.email })

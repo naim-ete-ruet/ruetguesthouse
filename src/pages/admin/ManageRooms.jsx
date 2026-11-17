@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { roomService } from '../../services/roomService';
+import { bookingService } from '../../services/bookingService';
 import { supabase } from '../../config/supabaseClient';
 import { Search, Filter, Edit, SlidersHorizontal, Plus, X, Trash2, Save, CheckCircle, AlertCircle, DoorOpen } from 'lucide-react';
 
@@ -81,8 +82,43 @@ export default function ManageRooms() {
   const fetchRooms = async () => {
     setIsLoading(true);
     try {
-      const data = await roomService.getAllRooms();
-      setRooms(data);
+      const [roomsData, activeBookings] = await Promise.all([
+        roomService.getAllRooms(),
+        bookingService.getActiveRoomBookings().catch(() => [])
+      ]);
+
+      const now = new Date();
+      const liveStatusMap = {};
+      (activeBookings || []).forEach(b => {
+        if (!b.assignedRoom) return;
+        const rNum = String(b.assignedRoom).replace(/^room\s*/i, '').trim();
+        const isPaidOrApproved = b.paymentStatus === 'PAID' || b.paymentStatus === 'COMPLETED' || b.bookingStatus === 'CONFIRMED' || b.approvalStatus === 'APPROVED';
+        const isPendingPayment = (b.paymentStatus === 'PENDING' || b.approvalStatus === 'PENDING_PAYMENT') && b.bookingStatus !== 'CANCELLED' && b.approvalStatus !== 'REJECTED';
+
+        if (isPaidOrApproved) {
+          liveStatusMap[rNum] = 'occupied';
+        } else if (isPendingPayment && !liveStatusMap[rNum]) {
+          if (b.paymentDeadline) {
+            const dl = new Date(b.paymentDeadline);
+            if (now < dl) {
+              liveStatusMap[rNum] = 'in-progress';
+            }
+          } else {
+            liveStatusMap[rNum] = 'in-progress';
+          }
+        }
+      });
+
+      const updatedRooms = (roomsData || []).map(r => {
+        const rNum = String(r.roomNumber).trim();
+        if (r.status === 'maintenance') return r;
+        if (liveStatusMap[rNum]) {
+          return { ...r, status: liveStatusMap[rNum] };
+        }
+        return r;
+      });
+
+      setRooms(updatedRooms);
     } catch (err) {
       console.error(err);
       showFeedback('error', 'Failed to load rooms from Supabase');
@@ -292,6 +328,7 @@ export default function ManageRooms() {
             <select className="form-select w-full sm:w-auto" value={filter} onChange={e => setFilter(e.target.value)}>
               <option value="ALL">All Status</option>
               <option value="available">Available</option>
+              <option value="in-progress">In Progress</option>
               <option value="occupied">Occupied</option>
               <option value="maintenance">Maintenance</option>
             </select>
@@ -308,10 +345,11 @@ export default function ManageRooms() {
       </div>
 
       {/* Rooms Table Card */}
-      <div className="card" style={{ overflowX: 'auto' }}>
+      <div className="card table-responsive" style={{ overflowX: 'auto' }}>
         <table className="w-full text-left" style={{ minWidth: '900px', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ borderBottom: '2px solid var(--color-border)' }}>
+              <th className="p-3">#</th>
               <th className="p-3">Room</th>
               <th className="p-3">Floor</th>
               <th className="p-3">Category</th>
@@ -322,11 +360,12 @@ export default function ManageRooms() {
           </thead>
           <tbody>
             {isLoading ? (
-              <tr><td colSpan="6" className="text-center p-8 text-muted">Loading rooms from database...</td></tr>
+              <tr><td colSpan="7" className="text-center p-8 text-muted">Loading rooms from database...</td></tr>
             ) : filteredRooms.length === 0 ? (
-              <tr><td colSpan="6" className="text-center p-8 text-muted">No rooms found matching your search.</td></tr>
-            ) : filteredRooms.map(room => (
+              <tr><td colSpan="7" className="text-center p-8 text-muted">No rooms found matching your search.</td></tr>
+            ) : filteredRooms.map((room, idx) => (
               <tr key={room.roomNumber} style={{ borderBottom: '1px solid var(--color-border)' }}>
+                <td className="p-3 text-muted font-mono text-sm">{idx + 1}</td>
                 <td className="p-3 font-medium text-primary text-lg">{room.roomNumber}</td>
                 <td className="p-3 text-sm">{room.floor}</td>
                 <td className="p-3 text-sm">
@@ -337,9 +376,17 @@ export default function ManageRooms() {
                 <td className="p-3">
                   <span className={`badge ${
                     room.status === 'available' ? 'badge-success' : 
+                    room.status === 'in-progress' ? 'badge' :
                     room.status === 'occupied' ? 'badge-danger' : 'badge-warning'
-                  }`}>
-                    {room.status}
+                  }`}
+                  style={room.status === 'in-progress' ? {
+                    backgroundColor: 'rgba(22, 163, 74, 0.15)',
+                    color: '#16a34a',
+                    fontWeight: 600,
+                    border: '1px solid rgba(22, 163, 74, 0.3)'
+                  } : {}}
+                  >
+                    {room.status === 'in-progress' ? 'in progress' : room.status}
                   </span>
                 </td>
                 <td className="p-3 text-center">
@@ -393,6 +440,7 @@ export default function ManageRooms() {
               maxWidth: '650px',
               maxHeight: '90vh',
               overflowY: 'auto',
+              WebkitOverflowScrolling: 'touch',
               borderRadius: '16px',
               boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
               position: 'relative'

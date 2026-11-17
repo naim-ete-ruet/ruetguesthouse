@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { Eye, EyeOff, RefreshCw, AlertCircle, CheckCircle } from 'lucide-react';
-import { API_BASE_URL } from '../../config/api';
+import { API_BASE_URL, apiFetch } from '../../config/api';
 
 export default function Login({ isAdmin = false, isTeacher = false }) {
   const [email, setEmail] = useState('');
@@ -34,7 +34,7 @@ export default function Login({ isAdmin = false, isTeacher = false }) {
 
       (async () => {
         try {
-          const response = await fetch(`${API_BASE_URL}/api/auth/verify-otp`, {
+          const response = await apiFetch('/api/auth/verify-otp', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ email: emailParam.trim(), otp: otpParam.trim() })
@@ -110,7 +110,7 @@ export default function Login({ isAdmin = false, isTeacher = false }) {
     }
     setIsLoading(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/api/auth/send-otp`, {
+      const response = await apiFetch('/api/auth/send-otp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: resetEmail.trim() })
@@ -140,7 +140,7 @@ export default function Login({ isAdmin = false, isTeacher = false }) {
     }
     setIsLoading(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/api/auth/verify-otp`, {
+      const response = await apiFetch('/api/auth/verify-otp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: resetEmail.trim(), otp: otp.trim() })
@@ -169,7 +169,7 @@ export default function Login({ isAdmin = false, isTeacher = false }) {
     }
     setIsLoading(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/api/auth/reset-password`, {
+      const response = await apiFetch('/api/auth/reset-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: resetEmail.trim(), otp: otp.trim(), newPassword })

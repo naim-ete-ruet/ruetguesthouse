@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useAuth } from '../../context/AuthContext';
 import { bookingService, sortBookingsNewestFirst } from '../../services/bookingService';
-import { API_BASE_URL } from '../../config/api';
+import { API_BASE_URL, apiFetch } from '../../config/api';
 import { Eye, SlidersHorizontal, Check, X, Search, Filter, XCircle } from 'lucide-react';
 
 export default function TeacherManageApplications() {
@@ -21,7 +21,7 @@ export default function TeacherManageApplications() {
   const fetchApplications = useCallback(async () => {
     setIsLoading(true);
     try {
-      const allBookings = await bookingService.getAllBookings();
+      const allBookings = await bookingService.getAllBookings({ portal: 'teacher', teacherId: user.id });
       
       // Filter applications that are assigned to this teacher
       const teacherApps = allBookings.filter(b => {
@@ -29,6 +29,7 @@ export default function TeacherManageApplications() {
         if (b.approvingTeacherId !== user.id) return false;
         // Don't show the teacher's own applications in their approval list
         if (b.userId === user.id) return false;
+        if (b.isTeacherBooking) return false;
         return true;
       });
       
@@ -76,7 +77,7 @@ export default function TeacherManageApplications() {
 
         // Trigger payment notification email to student (non-blocking with 5s timeout)
         try {
-          fetch(`${API_BASE_URL}/api/email/student-payment-notice`, {
+          apiFetch('/api/email/student-payment-notice', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -126,7 +127,7 @@ export default function TeacherManageApplications() {
         
         // Dispatch rejection email to student from workmail.naim@gmail.com
         try {
-          fetch(`${API_BASE_URL}/api/email/teacher-rejection-notice`, {
+          apiFetch('/api/email/teacher-rejection-notice', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -157,11 +158,32 @@ export default function TeacherManageApplications() {
     }
   };
 
+  const formatPlacedDateTime = (d) => {
+    if (!d) return 'N/A';
+    const dateObj = new Date(d);
+    if (isNaN(dateObj.getTime())) return d;
+    const y = dateObj.getFullYear();
+    const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+    const day = String(dateObj.getDate()).padStart(2, '0');
+    let hours = dateObj.getHours();
+    const minutes = String(dateObj.getMinutes()).padStart(2, '0');
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    hours = hours % 12 || 12;
+    return `${y}/${m}/${day} ${hours}:${minutes} ${ampm}`;
+  };
+
+  const formatBookingDateRange = (checkIn, checkOut) => {
+    if (!checkIn) return 'N/A';
+    const inStr = String(checkIn).replace(/-/g, '/');
+    if (!checkOut) return inStr;
+    return `${inStr} - ${String(checkOut).replace(/-/g, '/')}`;
+  };
+
   const filteredApps = sortBookingsNewestFirst(applications.filter(app => {
     let matchesFilter = true;
     if (filter === 'PENDING') matchesFilter = app.approvalStatus === 'PENDING_TEACHER_APPROVAL';
     else if (filter === 'APPROVED') matchesFilter = ['PENDING_PAYMENT', 'PENDING_ADMIN_APPROVAL', 'APPROVED'].includes(app.approvalStatus);
-    else if (filter === 'REJECTED') matchesFilter = app.approvalStatus === 'REJECTED_BY_TEACHER';
+    else if (filter === 'REJECTED') matchesFilter = app.approvalStatus === 'REJECTED_BY_TEACHER' || app.approvalStatus === 'REJECTED' || app.bookingStatus === 'CANCELLED';
 
     if (!matchesFilter) return false;
 
@@ -211,10 +233,11 @@ export default function TeacherManageApplications() {
         </div>
       </div>
 
-      <div className="card" style={{ overflowX: 'auto' }}>
+      <div className="card table-responsive" style={{ overflowX: 'auto' }}>
         <table className="w-full text-left" style={{ minWidth: '900px', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ borderBottom: '2px solid var(--color-border)' }}>
+              <th className="p-3">#</th>
               <th className="p-3">App ID</th>
               <th className="p-3">Student</th>
               <th className="p-3">Room No.</th>
@@ -225,11 +248,12 @@ export default function TeacherManageApplications() {
           </thead>
           <tbody>
             {isLoading ? (
-              <tr><td colSpan="6" className="text-center p-4">Loading applications...</td></tr>
+              <tr><td colSpan="7" className="text-center p-4">Loading applications...</td></tr>
             ) : filteredApps.length === 0 ? (
-              <tr><td colSpan="6" className="text-center p-4 text-muted">No applications found matching your criteria.</td></tr>
-            ) : filteredApps.map(app => (
+              <tr><td colSpan="7" className="text-center p-4 text-muted">No applications found matching your criteria.</td></tr>
+            ) : filteredApps.map((app, idx) => (
               <tr key={app.id} style={{ borderBottom: '1px solid var(--color-border)' }}>
+                <td className="p-3 text-muted font-mono text-sm">{idx + 1}</td>
                 <td className="p-3 font-medium text-primary">{app.id}</td>
                 <td className="p-3 text-sm">
                   <div className="font-bold">{app.applicantName}</div>
@@ -246,8 +270,8 @@ export default function TeacherManageApplications() {
                     <span className="text-muted font-normal text-xs">Not assigned</span>
                   )}
                 </td>
-                <td className="p-3 text-sm">
-                  {app.checkInDate} to {app.checkOutDate}
+                <td className="p-3 text-sm text-muted whitespace-nowrap">
+                  {formatBookingDateRange(app.checkInDate, app.checkOutDate)}
                 </td>
                 <td className="p-3">
                   <span className={`badge ${
@@ -349,6 +373,10 @@ export default function TeacherManageApplications() {
               <div className="p-3 rounded-lg" style={{ backgroundColor: 'var(--color-background)', border: '1px solid var(--color-border)' }}>
                 <div className="text-xs uppercase font-bold text-muted mb-2 tracking-wider">Stay & Room Details</div>
                 <div className="grid grid-cols-2 gap-y-2 gap-x-2">
+                  <div className="col-span-2">
+                    <span className="text-muted block text-xs">Booking Placed At:</span>
+                    <strong className="text-text">{formatPlacedDateTime(selectedApp.createdAt)}</strong>
+                  </div>
                   <div>
                     <span className="text-muted block text-xs">Check-in:</span>
                     <strong className="text-text">{selectedApp.checkInDate}</strong> <span className="text-xs text-muted">({selectedApp.checkInTime})</span>

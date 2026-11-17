@@ -19,6 +19,8 @@ dist-ssr
 
 # Local transactions log
 backend/transactions.json
+backend/payments.json
+backend/portal_deletions.json
 
 # Local AI Developer Tools & Skills (Never push to GitHub)
 .agents/

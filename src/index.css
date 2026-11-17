@@ -104,6 +104,8 @@ a:hover {
 .container {
   width: 100%;
   max-width: 1200px;
+  min-width: 0;
+  box-sizing: border-box;
   margin: 0 auto;
   padding: 0 var(--spacing-4);
 }
@@ -114,6 +116,8 @@ a:hover {
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-md);
   padding: var(--spacing-6);
+  min-width: 0;
+  box-sizing: border-box;
   transition: box-shadow var(--transition-normal), transform var(--transition-normal), border-color var(--transition-normal);
 }
 .card:hover {
@@ -634,12 +638,58 @@ html, body {
 }
 
 /* Smooth touch scrolling for all horizontally scrollable containers */
+.table-responsive,
+.card[style*="overflow-x: auto"],
+.card[style*="overflowX: 'auto'"],
+.card[style*="overflowX: auto"],
 [style*="overflow-x: auto"],
 [style*="overflowX: 'auto'"],
-.overflow-x-auto,
-.table-responsive {
-  -webkit-overflow-scrolling: touch;
+.overflow-x-auto {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  overflow-x: auto !important;
+  -webkit-overflow-scrolling: touch !important;
+  touch-action: pan-x pan-y !important;
+  overscroll-behavior-x: contain !important;
   scrollbar-width: thin;
+  display: block;
+  box-sizing: border-box !important;
+}
+
+/* Ensure tables inside horizontally scrollable cards don't shrink below their minimum columns */
+.table-responsive > table,
+.card[style*="overflow-x: auto"] > table,
+.card[style*="overflowX: 'auto'"] > table {
+  display: table;
+  width: 100%;
+}
+
+/* Custom scrollbar styling for webkit */
+.table-responsive::-webkit-scrollbar,
+.card[style*="overflow-x: auto"]::-webkit-scrollbar,
+.card[style*="overflowX: 'auto'"]::-webkit-scrollbar {
+  height: 6px;
+}
+
+.table-responsive::-webkit-scrollbar-track,
+.card[style*="overflow-x: auto"]::-webkit-scrollbar-track,
+.card[style*="overflowX: 'auto'"]::-webkit-scrollbar-track {
+  background: var(--color-background);
+  border-radius: 4px;
+}
+
+.table-responsive::-webkit-scrollbar-thumb,
+.card[style*="overflow-x: auto"]::-webkit-scrollbar-thumb,
+.card[style*="overflowX: 'auto'"]::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 4px;
+}
+
+.table-responsive::-webkit-scrollbar-thumb:hover,
+.card[style*="overflow-x: auto"]::-webkit-scrollbar-thumb:hover,
+.card[style*="overflowX: 'auto'"]::-webkit-scrollbar-thumb:hover {
+  background: var(--color-muted);
 }
 
 /* Mobile Screen Breakpoint (< 768px) */

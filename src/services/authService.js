@@ -17,10 +17,11 @@ export const authService = {
 
     const { password: _, ...sanitizedUser } = data;
 
-    // Check account suspension status
+    // Check account suspension status from Supabase status column or local suspended list
     try {
+      const isSuspendedInDb = sanitizedUser.status && String(sanitizedUser.status).toLowerCase() === 'suspended';
       const suspendedList = JSON.parse(localStorage.getItem('ruet_suspended_users') || '[]');
-      if (suspendedList.includes(sanitizedUser.id)) {
+      if (isSuspendedInDb || suspendedList.includes(sanitizedUser.id)) {
         throw new Error("Your account has been suspended by the administrator. Please contact the guest house office.");
       }
     } catch (e) {
@@ -183,5 +184,25 @@ export const authService = {
       ...sanitizedUser,
       rollNo: sanitizedUser.nid || sanitizedUser.rollNo || ''
     };
+  },
+
+  async updateUserStatus(userId, status) {
+    try {
+      const cleanStatus = String(status || 'active').toLowerCase();
+      const { data, error } = await supabase
+        .from('users')
+        .update({ status: cleanStatus })
+        .eq('id', userId)
+        .select()
+        .single();
+
+      if (error) {
+        console.warn("Supabase updateUserStatus error:", error.message);
+      }
+      return data;
+    } catch (err) {
+      console.warn("Supabase updateUserStatus exception:", err.message);
+      return null;
+    }
   }
 };

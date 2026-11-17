@@ -85,7 +85,13 @@ export const roomService = {
         }
 
         if (!b.assigned_room) return;
-        const isConfirmed = (b.booking_status === 'CONFIRMED' || b.approval_status === 'APPROVED');
+
+        const isConfirmed = (
+          b.booking_status === 'CONFIRMED' ||
+          b.approval_status === 'APPROVED' ||
+          b.payment_status === 'COMPLETED' ||
+          b.payment_status === 'PAID'
+        );
         if (!isConfirmed) return;
 
         const checkIn = parseDateTime(b.check_in_date, b.check_in_time, '12:00');

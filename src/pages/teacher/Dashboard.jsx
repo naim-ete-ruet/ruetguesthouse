@@ -24,6 +24,7 @@ export default function TeacherDashboard() {
         const teacherBookings = allBookings.filter(b => {
           if (b.approvingTeacherId !== user.id) return false;
           if (b.userId === user.id) return false;
+          if (b.isTeacherBooking) return false;
           return true;
         });
 

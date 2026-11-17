@@ -6,7 +6,7 @@ import { Eye, SlidersHorizontal, XCircle, CreditCard, FileText, Trash2, CheckCir
 import { Link } from 'react-router-dom';
 import { PDFDownloadLink } from '@react-pdf/renderer';
 import { GuestHouseApplicationPDF } from '../../components/pdf/GuestHouseApplicationPDF';
-import { API_BASE_URL } from '../../config/api';
+import { API_BASE_URL, apiFetch } from '../../config/api';
 
 export default function BookingHistory() {
   const { user } = useAuth();
@@ -120,19 +120,19 @@ export default function BookingHistory() {
       return;
     }
 
-    if (!window.confirm(`Are you sure you want to permanently delete booking ${id}? This will remove it from the Supabase database.`)) {
+    if (!window.confirm(`Are you sure you want to remove booking ${id} from your history? (This will remove it from your view only)`)) {
       return;
     }
 
     setIsDeleting(true);
     try {
-      await bookingService.deleteBooking(id);
+      await bookingService.deleteBookingForPortal(id, user?.role || 'student', user?.id);
       setBookings(prev => prev.filter(b => b.id !== id));
       setSelectedBooking(null);
-      showFeedback('success', `Booking ${id} deleted successfully from database.`);
+      showFeedback('success', `Booking ${id} removed from your history.`);
     } catch (err) {
       console.error("Delete booking failed:", err);
-      showFeedback('error', err.message || 'Failed to delete booking from database.');
+      showFeedback('error', err.message || 'Failed to remove booking.');
     } finally {
       setIsDeleting(false);
     }
@@ -153,7 +153,7 @@ export default function BookingHistory() {
         if (isPaid) {
           let invoiceNumber = null;
           try {
-            const txs = await fetch(`${API_BASE_URL}/api/payment/transactions`).then(r => r.json());
+            const txs = await apiFetch('/api/payment/transactions').then(r => r.json());
             invoiceNumber = txs[id]?.invoiceNumber || txs[id]?.bankTranId;
           } catch (e) {}
 
@@ -200,6 +200,20 @@ export default function BookingHistory() {
     }
   };
 
+  const formatPlacedDateTime = (d) => {
+    if (!d) return 'N/A';
+    const dateObj = new Date(d);
+    if (isNaN(dateObj.getTime())) return d;
+    const y = dateObj.getFullYear();
+    const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+    const day = String(dateObj.getDate()).padStart(2, '0');
+    let hours = dateObj.getHours();
+    const minutes = String(dateObj.getMinutes()).padStart(2, '0');
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    hours = hours % 12 || 12;
+    return `${y}/${m}/${day} ${hours}:${minutes} ${ampm}`;
+  };
+
   return (
     <div className="container">
       <h1 className="text-2xl font-bold mb-6">
@@ -233,10 +247,11 @@ export default function BookingHistory() {
           </p>
         </div>
       ) : (
-        <div className="card" style={{ overflowX: 'auto' }}>
-          <table className="w-full text-left" style={{ minWidth: '800px', borderCollapse: 'collapse' }}>
+        <div className="card table-responsive" style={{ overflowX: 'auto' }}>
+          <table className="w-full text-left" style={{ minWidth: '850px', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ borderBottom: '2px solid var(--color-border)' }}>
+                <th className="p-3 text-left">#</th>
                 <th className="p-3 text-left">Booking ID</th>
                 <th className="p-3 text-left">Dates</th>
                 <th className="p-3 text-left">Room No.</th>
@@ -247,17 +262,21 @@ export default function BookingHistory() {
               </tr>
             </thead>
             <tbody>
-              {sortBookingsNewestFirst(bookings).map(booking => (
+              {sortBookingsNewestFirst(bookings).map((booking, idx) => (
                 <tr key={booking.id} style={{ borderBottom: '1px solid var(--color-border)' }}>
+                  <td className="p-3 text-left text-muted font-mono text-sm">{idx + 1}</td>
                   <td className="p-3 text-left font-medium text-primary">
                     {booking.id}
                     {booking.applicantName && (
                       <span className="text-muted text-xs block font-normal">{booking.applicantName}</span>
                     )}
                   </td>
-                  <td className="p-3 text-left text-sm">
-                    {booking.checkInDate} <br />
-                    <span className="text-muted text-xs">to {booking.checkOutDate}</span>
+                  <td className="p-3 text-left text-sm whitespace-nowrap">
+                    {booking.checkInDate ? (
+                      booking.checkOutDate ? (
+                        `${booking.checkInDate.replace(/-/g, '/')} - ${booking.checkOutDate.replace(/-/g, '/')}`
+                      ) : booking.checkInDate.replace(/-/g, '/')
+                    ) : 'N/A'}
                   </td>
                   <td className="p-3 text-left text-sm font-semibold">
                     {booking.assignedRoom ? (
@@ -270,7 +289,7 @@ export default function BookingHistory() {
                       <span className="text-muted font-normal text-xs">Not assigned</span>
                     )}
                   </td>
-                  <td className="p-3 text-left">৳{booking.totalAmount}</td>
+                  <td className="p-3 text-left font-bold">৳{booking.totalAmount}</td>
                   <td className="p-3 text-left">
                     <span className={`badge ${booking.approvalStatus === 'APPROVED' ? 'badge-success' : booking.approvalStatus === 'REJECTED' ? 'badge-danger' : 'badge-warning'}`}>
                       {booking.approvalStatus}
@@ -326,6 +345,7 @@ export default function BookingHistory() {
               maxWidth: '720px', 
               maxHeight: '92vh', 
               overflowY: 'auto',
+              WebkitOverflowScrolling: 'touch',
               borderRadius: '16px',
               boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
               padding: '1.25rem'
@@ -370,6 +390,10 @@ export default function BookingHistory() {
               <div className="p-3 rounded-lg" style={{ backgroundColor: 'var(--color-background)', border: '1px solid var(--color-border)' }}>
                 <div className="text-xs uppercase font-bold text-muted mb-2 tracking-wider">Stay & Room Details</div>
                 <div className="grid grid-cols-2 gap-y-2 gap-x-2">
+                  <div className="col-span-2">
+                    <span className="text-muted block text-xs">Booking Placed At:</span>
+                    <strong className="text-text">{formatPlacedDateTime(selectedBooking.createdAt)}</strong>
+                  </div>
                   <div>
                     <span className="text-muted block text-xs">Check-in:</span>
                     <strong className="text-text">{selectedBooking.checkInDate}</strong> <span className="text-xs text-muted">({selectedBooking.checkInTime})</span>

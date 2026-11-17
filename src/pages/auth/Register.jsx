@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { authService } from '../../services/authService';
-import { API_BASE_URL } from '../../config/api';
+import { API_BASE_URL, apiFetch } from '../../config/api';
 import {
   Eye,
   EyeOff,
@@ -156,7 +156,7 @@ export default function Register() {
       }
 
       // 3. Dispatch verification email via backend from workmail.naim@gmail.com
-      const response = await fetch(`${API_BASE_URL}/api/auth/send-registration-otp`, {
+      const response = await apiFetch('/api/auth/send-registration-otp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -212,7 +212,7 @@ export default function Register() {
       const cleanEmail = formData.email.trim().toLowerCase();
 
       // 1. Verify OTP with backend
-      const verifyRes = await fetch(`${API_BASE_URL}/api/auth/verify-registration-otp`, {
+      const verifyRes = await apiFetch('/api/auth/verify-registration-otp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -240,7 +240,7 @@ export default function Register() {
 
       // 3. Dispatch official registration confirmation email from workmail.naim@gmail.com
       try {
-        fetch(`${API_BASE_URL}/api/email/registration-confirmation`, {
+        apiFetch('/api/email/registration-confirmation', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -282,7 +282,7 @@ export default function Register() {
 
     try {
       const cleanEmail = formData.email.trim().toLowerCase();
-      const response = await fetch(`${API_BASE_URL}/api/auth/send-registration-otp`, {
+      const response = await apiFetch('/api/auth/send-registration-otp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

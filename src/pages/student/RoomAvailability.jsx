@@ -38,7 +38,7 @@ export default function RoomAvailability() {
     try {
       const [roomsData, bookingsData] = await Promise.all([
         roomService.getAllRooms(),
-        bookingService.getAllBookings().catch(() => [])
+        bookingService.getActiveRoomBookings()
       ]);
       setRooms(roomsData || []);
       setBookings(bookingsData || []);
@@ -61,6 +61,9 @@ export default function RoomAvailability() {
     window.addEventListener('indicatorsChanged', handleSync);
     window.addEventListener('focus', handleSync);
 
+    // Periodic sync every 10 seconds to keep seats 100% in sync across multiple browsers
+    const timer = setInterval(fetchData, 10000);
+
     // 2. Realtime listener for cross-tab and cross-device synchronization via Supabase
     const channel = supabase
       .channel('realtime_rooms_sync_booking')
@@ -76,6 +79,7 @@ export default function RoomAvailability() {
       window.removeEventListener('roomsChanged', handleSync);
       window.removeEventListener('indicatorsChanged', handleSync);
       window.removeEventListener('focus', handleSync);
+      clearInterval(timer);
       supabase.removeChannel(channel);
     };
   }, []);
@@ -83,25 +87,65 @@ export default function RoomAvailability() {
   // Compute active status for each room based on date and bookings
   const roomStatusMap = useMemo(() => {
     const map = {};
-    const checkIn = new Date(checkInDate);
-    const checkOut = new Date(checkOutDate);
+    const normDate = (d) => String(d || '').trim().replace(/\//g, '-').slice(0, 10);
+    const cIn = normDate(checkInDate);
+    const cOut = normDate(checkOutDate);
 
+    // Initial base status from rooms table
     rooms.forEach(room => {
-      map[room.roomNumber] = room.status; // 'available', 'occupied', 'maintenance'
+      const roomNum = String(room.roomNumber).trim();
+      const s = String(room.status || '').toLowerCase();
+      if (s === 'occupied') {
+        map[roomNum] = 'booked';
+      } else if (s === 'maintenance') {
+        map[roomNum] = 'maintenance';
+      } else {
+        map[roomNum] = 'available';
+      }
     });
 
     bookings.forEach(b => {
-      if (b.assignedRoom && b.bookingStatus !== 'CANCELLED' && b.approvalStatus !== 'CANCELLED' && b.approvalStatus !== 'REJECTED') {
-        const bIn = new Date(b.checkInDate);
-        const bOut = new Date(b.checkOutDate || b.checkInDate);
-        const overlaps = (checkIn < bOut) && (checkOut > bIn);
-        if (overlaps) {
-          if (b.approvalStatus === 'APPROVED' || b.bookingStatus === 'CONFIRMED') {
-            map[b.assignedRoom] = 'booked';
-          } else if (b.approvalStatus === 'PENDING_TEACHER_APPROVAL' || b.approvalStatus === 'PENDING_ADMIN_APPROVAL') {
-            map[b.assignedRoom] = 'in-progress';
-          }
-        }
+      const assignedRoom = b.assignedRoom || b.assigned_room;
+      if (!assignedRoom) return;
+      const roomKey = String(assignedRoom).trim();
+
+      const bookingStatus = String(b.bookingStatus || b.booking_status || '').toUpperCase();
+      const approvalStatus = String(b.approvalStatus || b.approval_status || '').toUpperCase();
+      const paymentStatus = String(b.paymentStatus || b.payment_status || '').toUpperCase();
+
+      // Exclude cancelled or rejected bookings
+      if (
+        bookingStatus === 'CANCELLED' ||
+        approvalStatus === 'CANCELLED' ||
+        approvalStatus === 'EXPIRED' ||
+        approvalStatus === 'REJECTED' ||
+        approvalStatus === 'REJECTED_BY_TEACHER' ||
+        bookingStatus === 'COMPLETED'
+      ) {
+        return;
+      }
+
+      // Check date overlap (using deterministic YYYY-MM-DD string comparison)
+      const bIn = normDate(b.checkInDate || b.check_in_date);
+      const bOut = normDate(b.checkOutDate || b.check_out_date || bIn);
+      if (!bIn) return;
+
+      const overlaps = (cIn < bOut) && (cOut > bIn);
+      if (!overlaps) return;
+
+      // Check if Booked vs In Progress
+      const isConfirmed = (
+        bookingStatus === 'CONFIRMED' ||
+        approvalStatus === 'APPROVED' ||
+        paymentStatus === 'COMPLETED' ||
+        paymentStatus === 'PAID'
+      );
+
+      if (isConfirmed) {
+        map[roomKey] = 'booked';
+      } else {
+        // Any active reservation awaiting payment or review is IN PROGRESS!
+        map[roomKey] = 'in-progress';
       }
     });
 
@@ -146,12 +190,25 @@ export default function RoomAvailability() {
     }
   }, [availableFloors, selectedFloor]);
 
-  // Automatically clear selection if admin deletes the selected room
+  // Automatically clear selection if admin deletes the selected room or if room becomes booked/in-progress
   useEffect(() => {
-    if (selectedRoomNumber && !rooms.some(r => r.roomNumber === selectedRoomNumber)) {
-      setSelectedRoomNumber(null);
+    if (selectedRoomNumber) {
+      const status = roomStatusMap[String(selectedRoomNumber).trim()];
+      if (status && status !== 'available') {
+        setSelectedRoomNumber(null);
+      }
     }
-  }, [rooms, selectedRoomNumber]);
+  }, [roomStatusMap, selectedRoomNumber]);
+
+  // Track if current logged-in user has any in-progress bookings
+  const myInProgressBookings = useMemo(() => {
+    return bookings.filter(b => {
+      const isOwner = b.userId === user?.id || (b.applicantEmail && user?.email && b.applicantEmail.toLowerCase() === user.email.toLowerCase());
+      const bStatus = String(b.bookingStatus || b.booking_status || '').toUpperCase();
+      const pStatus = String(b.paymentStatus || b.payment_status || '').toUpperCase();
+      return isOwner && bStatus !== 'CANCELLED' && bStatus !== 'COMPLETED' && pStatus === 'PENDING';
+    });
+  }, [bookings, user]);
 
   // Calculate stay duration in nights
   const totalNights = useMemo(() => {
@@ -196,9 +253,46 @@ export default function RoomAvailability() {
   };
 
   const handleRoomClick = (room) => {
-    if (isRoomRestricted(room)) return;
-    const status = roomStatusMap[room.roomNumber];
-    if (status === 'booked' || status === 'occupied' || status === 'maintenance') return;
+    if (isRoomRestricted(room)) {
+      alert("VIP rooms are reserved exclusively for university Teachers and Admin.");
+      return;
+    }
+
+    const roomNum = String(room.roomNumber).trim();
+    const status = roomStatusMap[roomNum];
+
+    if (status === 'in-progress') {
+      // Find the active booking for this room
+      const activeBooking = bookings.find(b => {
+        const assigned = String(b.assignedRoom || b.assigned_room || '').trim();
+        const bStatus = String(b.bookingStatus || b.booking_status || '').toUpperCase();
+        return assigned === roomNum && bStatus !== 'CANCELLED' && bStatus !== 'COMPLETED';
+      });
+
+      const isMyBooking = activeBooking && (
+        activeBooking.userId === user?.id || 
+        (activeBooking.applicantEmail && user?.email && activeBooking.applicantEmail.toLowerCase() === user.email.toLowerCase())
+      );
+
+      if (isMyBooking) {
+        if (window.confirm(`Room ${roomNum} is already reserved and in-progress under your application (Booking #${activeBooking.id}).\n\nYou cannot select or re-apply for this room while in progress.\n\nWould you like to go to the Payment page to complete your payment now?`)) {
+          navigate(user?.role === 'teacher' ? '/teacher/payment' : '/student/payment');
+        }
+      } else {
+        alert(`Room ${roomNum} is currently in progress (reserved by an applicant awaiting payment) and cannot be selected by other users.`);
+      }
+      return;
+    }
+
+    if (status === 'booked' || status === 'occupied') {
+      alert(`Room ${roomNum} is already booked and occupied for the selected dates.`);
+      return;
+    }
+
+    if (status === 'maintenance') {
+      alert(`Room ${roomNum} is temporarily under maintenance.`);
+      return;
+    }
 
     if (selectedRoomNumber === room.roomNumber) {
       setSelectedRoomNumber(null);
@@ -262,6 +356,38 @@ export default function RoomAvailability() {
           </span>
         </div>
       </div>
+
+      {/* Active In-Progress Reservation Notice for Current User */}
+      {myInProgressBookings.length > 0 && (
+        <div 
+          className="p-3 mb-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 animate-fade-in"
+          style={{ 
+            backgroundColor: isDark ? 'rgba(22, 163, 74, 0.15)' : 'rgba(22, 163, 74, 0.1)', 
+            border: '1.5px solid #16a34a',
+            borderRadius: '12px'
+          }}
+        >
+          <div className="flex items-center gap-2">
+            <span style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: '#16a34a', display: 'inline-block', flexShrink: 0 }}></span>
+            <div>
+              <p className="text-sm font-bold" style={{ color: isDark ? '#4ade80' : '#15803d', margin: 0 }}>
+                You have an active in-progress reservation for Room {myInProgressBookings.map(b => b.assignedRoom || b.assigned_room).join(', ')}
+              </p>
+              <p className="text-xs text-muted" style={{ margin: '2px 0 0' }}>
+                Your room is held in progress. If your previous payment attempt failed or is pending, please pay from the Payment page.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => navigate(user?.role === 'teacher' ? '/teacher/payment' : '/student/payment')}
+            className="btn btn-primary text-xs font-bold flex-shrink-0"
+            style={{ backgroundColor: '#16a34a', borderColor: '#16a34a', padding: '6px 16px', minHeight: '36px' }}
+          >
+            Go to Payment Page
+          </button>
+        </div>
+      )}
 
       {/* Date Filter Card */}
       <div 
@@ -350,8 +476,8 @@ export default function RoomAvailability() {
 
             const availableCount = floorRooms.filter(r => {
               if (isRoomRestricted(r)) return false;
-              const s = roomStatusMap[r.roomNumber];
-              return s !== 'booked' && s !== 'occupied' && s !== 'maintenance';
+              const s = roomStatusMap[String(r.roomNumber).trim()];
+              return s === 'available';
             }).length;
 
             return (
@@ -681,7 +807,7 @@ export default function RoomAvailability() {
                 }}
               >
                 {currentFloorRooms.map((room) => {
-                  const status = roomStatusMap[room.roomNumber] || 'available';
+                  const status = roomStatusMap[String(room.roomNumber).trim()] || 'available';
                   const isSelected = selectedRoomNumber === room.roomNumber;
                   const isRestricted = isRoomRestricted(room);
                   const isBooked = status === 'booked' || status === 'occupied';
@@ -730,7 +856,6 @@ export default function RoomAvailability() {
                     <button
                       key={room.roomNumber}
                       type="button"
-                      disabled={!isAvailable && !isSelected}
                       onClick={() => handleRoomClick(room)}
                       style={{
                         background: bgColor,
@@ -740,7 +865,7 @@ export default function RoomAvailability() {
                           : `1.5px solid ${borderColor}`,
                         borderRadius: '10px',
                         padding: '8px 2px',
-                        minHeight: '48px',
+                        minHeight: '52px',
                         width: '100%',
                         minWidth: 0,
                         display: 'flex',
@@ -764,7 +889,17 @@ export default function RoomAvailability() {
                       {isSelected && (
                         <Check size={14} style={{ color: '#ffffff', marginTop: '2px', strokeWidth: 3 }} />
                       )}
-                      {isRestricted && !isSelected && (
+                      {isInProgress && (
+                        <span style={{ fontSize: '9px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.4px', marginTop: '2px', color: '#ffffff' }}>
+                          In Progress
+                        </span>
+                      )}
+                      {isBooked && (
+                        <span style={{ fontSize: '9px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.4px', marginTop: '2px', color: '#ffffff' }}>
+                          Booked
+                        </span>
+                      )}
+                      {isRestricted && !isSelected && !isInProgress && !isBooked && (
                         <Lock size={12} style={{ color: 'var(--color-muted)', marginTop: '2px' }} />
                       )}
                     </button>

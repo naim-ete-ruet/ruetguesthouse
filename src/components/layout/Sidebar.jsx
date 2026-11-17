@@ -2,6 +2,7 @@ import { NavLink, useLocation } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { bookingService } from '../../services/bookingService';
+import { paymentService } from '../../services/paymentService';
 import { notificationService } from '../../services/notificationService';
 import { Home, Calendar, Clock, CreditCard, Bell, Settings, Users, DoorOpen, MessageSquare, Coffee } from 'lucide-react';
 
@@ -38,13 +39,15 @@ export default function Sidebar({ isOpen, closeSidebar }) {
           const allComplaints = await complaintService.getAllComplaints();
           const pendingComplaints = allComplaints.some(c => c.status === 'Open');
 
+          const payments = await paymentService.getAllPayments();
+
           setIndicators(prev => ({
             ...prev,
             notifications: hasUnreadNotifications,
             adminBookings: pendingBookings,
             adminDining: pendingMeals,
             adminComplaints: pendingComplaints,
-            adminPayments: allBookings.some(b => b.paymentStatus === 'PENDING' && b.bookingStatus !== 'CANCELLED' && b.approvalStatus !== 'CANCELLED' && b.approvalStatus !== 'REJECTED')
+            adminPayments: payments.some(p => p.paymentStatus === 'PENDING')
           }));
         } else {
           // Guest / Teacher
@@ -80,12 +83,16 @@ export default function Sidebar({ isOpen, closeSidebar }) {
     // Listen to custom events for instant updates
     window.addEventListener('indicatorsChanged', fetchIndicators);
     window.addEventListener('notificationsChanged', fetchIndicators);
+    window.addEventListener('paymentsChanged', fetchIndicators);
+    window.addEventListener('bookingsChanged', fetchIndicators);
 
     const interval = setInterval(fetchIndicators, 30000);
     return () => {
       clearInterval(interval);
       window.removeEventListener('indicatorsChanged', fetchIndicators);
       window.removeEventListener('notificationsChanged', fetchIndicators);
+      window.removeEventListener('paymentsChanged', fetchIndicators);
+      window.removeEventListener('bookingsChanged', fetchIndicators);
     };
   }, [user, location.pathname]);
 

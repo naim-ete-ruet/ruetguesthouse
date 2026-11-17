@@ -141,8 +141,8 @@ export const mealService = {
   },
 
   async refundMeal(id, reason = 'Admin Dining Refund') {
-    const { API_BASE_URL } = await import('../config/api');
-    const response = await fetch(`${API_BASE_URL}/api/payment/refund`, {
+    const { apiFetch } = await import('../config/api');
+    const response = await apiFetch('/api/payment/refund', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ mealId: id, reason })

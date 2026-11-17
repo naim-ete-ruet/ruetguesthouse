@@ -18,13 +18,16 @@ export default function Layout() {
   const closeSidebar = () => setSidebarOpen(false);
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', width: '100%', maxWidth: '100vw', overflowX: 'hidden' }}>
       <Navbar toggleSidebar={toggleSidebar} />
-      <div style={{ display: 'flex', flex: 1, position: 'relative' }}>
+      <div className="layout-content-wrapper" style={{ display: 'flex', flex: 1, position: 'relative', width: '100%', maxWidth: '100vw', minWidth: 0 }}>
         {user && <Sidebar isOpen={sidebarOpen} closeSidebar={closeSidebar} />}
         
         <main style={{ 
-          flex: 1, 
+          flex: '1 1 auto',
+          minWidth: 0,
+          maxWidth: '100%',
+          boxSizing: 'border-box',
           transition: 'margin var(--transition-normal)'
         }} className={user ? "main-content animate-fade-in" : "animate-fade-in"}>
           <Outlet />
@@ -37,6 +40,13 @@ export default function Layout() {
         }
         main {
           padding: 1rem 0.625rem;
+          min-width: 0;
+          box-sizing: border-box;
+        }
+        .main-content {
+          min-width: 0 !important;
+          max-width: 100% !important;
+          box-sizing: border-box !important;
         }
         @media (min-width: 768px) {
           .navbar {
@@ -44,7 +54,11 @@ export default function Layout() {
           }
           .main-content {
             margin-left: 250px !important;
+            width: calc(100% - 250px) !important;
+            max-width: calc(100% - 250px) !important;
+            min-width: 0 !important;
             padding: 1.5rem !important;
+            box-sizing: border-box !important;
           }
         }
       `}</style>

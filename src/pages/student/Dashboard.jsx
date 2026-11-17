@@ -125,8 +125,8 @@ export default function StudentDashboard() {
                     <p className="text-sm font-bold text-warning flex items-center gap-1">
                       <Clock size={16} className="flex-shrink-0" /> Payment required to confirm booking
                     </p>
-                    <p className="text-xs text-warning mt-1">
-                      {latestBooking.requestedRoomType === 'TYPE_3' ? 'Deadline: 2 hours' : 'Deadline: 5 minutes'}
+                    <p className="text-xs text-warning mt-1 font-medium">
+                      {latestBooking.requestedRoomType === 'TYPE_3' ? 'Window: 2 hours from approval' : 'Window: 5 minutes from approval'} • Room will be released upon expiration.
                     </p>
                   </div>
                   <Link to="/student/payment" className="btn btn-primary w-full sm:w-auto text-center" style={{ backgroundColor: 'var(--color-warning)' }}>Pay Now</Link>

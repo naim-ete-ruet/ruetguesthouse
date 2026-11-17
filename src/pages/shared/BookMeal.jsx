@@ -5,7 +5,7 @@ import { bookingService } from '../../services/bookingService';
 import { mealService } from '../../services/mealService';
 import { supabase } from '../../config/supabaseClient';
 import { AlertCircle, Coffee, Clock, CheckCircle, Trash2, X, RefreshCw } from 'lucide-react';
-import { API_BASE_URL } from '../../config/api';
+import { API_BASE_URL, apiFetch } from '../../config/api';
 
 export default function BookMeal() {
   const { user } = useAuth();
@@ -200,7 +200,7 @@ export default function BookMeal() {
       const createdMeal = await mealService.requestMeal(mealData);
 
       // 2. Init SSLCommerz payment
-      const response = await fetch(`${API_BASE_URL}/api/payment/init`, {
+      const response = await apiFetch('/api/payment/init', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -211,7 +211,8 @@ export default function BookMeal() {
           email: user.email,
           mobile: selectedBooking.mobileNumber || user.mobile || '01700000000',
           item_type: 'meal',
-          reference_id: createdMeal.id // pass the meal ID
+          reference_id: createdMeal.id, // pass the meal ID
+          client_url: window.location.origin
         })
       });
       

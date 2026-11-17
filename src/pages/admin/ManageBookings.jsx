@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { bookingService, sortBookingsNewestFirst } from '../../services/bookingService';
 import { roomService } from '../../services/roomService';
 import { Eye, SlidersHorizontal, Check, X, Search, Filter, XCircle, DoorOpen, Trash2 } from 'lucide-react';
-import { API_BASE_URL } from '../../config/api';
+import { API_BASE_URL, apiFetch } from '../../config/api';
 
 const parseDateTime = (dateStr, timeStr, defaultTime = '12:00') => {
   if (!dateStr) return null;
@@ -90,7 +90,7 @@ export default function ManageBookings() {
   const fetchBookings = async () => {
     setIsLoading(true);
     try {
-      const data = await bookingService.getAllBookings();
+      const data = await bookingService.getAllBookings({ portal: 'admin' });
       setBookings(sortBookingsNewestFirst(data));
     } catch (err) {
       console.error(err);
@@ -109,7 +109,7 @@ export default function ManageBookings() {
           if (isPaid) {
             let invoiceNumber = null;
             try {
-              const txs = await fetch(`${API_BASE_URL}/api/payment/transactions`).then(r => r.json());
+              const txs = await apiFetch('/api/payment/transactions').then(r => r.json());
               invoiceNumber = txs[id]?.invoiceNumber || txs[id]?.bankTranId;
             } catch (e) {}
 
@@ -130,7 +130,7 @@ export default function ManageBookings() {
 
           // Dispatch Admin Rejection Notification email from workmail.naim@gmail.com
           try {
-            fetch(`${API_BASE_URL}/api/email/admin-rejection-notice`, {
+            apiFetch('/api/email/admin-rejection-notice', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -167,7 +167,7 @@ export default function ManageBookings() {
 
           // Dispatch Admin Approval Notification email from workmail.naim@gmail.com
           try {
-            fetch(`${API_BASE_URL}/api/email/admin-approval-notice`, {
+            apiFetch('/api/email/admin-approval-notice', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -195,25 +195,39 @@ export default function ManageBookings() {
   };
 
   const handleDeleteBooking = async (id) => {
-    if (!window.confirm(`Are you sure you want to permanently delete booking ${id} from the database? This action cannot be undone.`)) {
+    if (!window.confirm(`Are you sure you want to remove booking ${id} from the Admin portal? (The guest will still retain their booking record in their portal)`)) {
       return;
     }
 
     setIsDeleting(true);
     try {
-      await bookingService.deleteBooking(id);
+      await bookingService.deleteBookingForPortal(id, 'admin', null);
       setBookings(prev => prev.filter(b => b.id !== id));
       setSelectedBooking(null);
-      alert(`Booking ${id} was successfully deleted from the database.`);
+      alert(`Booking ${id} was removed from the Admin portal.`);
       await roomService.syncRoomAvailability();
     } catch (err) {
       console.error("Failed to delete booking:", err);
-      alert(err.message || "Failed to delete booking from database.");
+      alert(err.message || "Failed to remove booking.");
     } finally {
       setIsDeleting(false);
     }
   };
 
+
+  const formatPlacedDateTime = (d) => {
+    if (!d) return 'N/A';
+    const dateObj = new Date(d);
+    if (isNaN(dateObj.getTime())) return d;
+    const y = dateObj.getFullYear();
+    const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+    const day = String(dateObj.getDate()).padStart(2, '0');
+    let hours = dateObj.getHours();
+    const minutes = String(dateObj.getMinutes()).padStart(2, '0');
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    hours = hours % 12 || 12;
+    return `${y}/${m}/${day} ${hours}:${minutes} ${ampm}`;
+  };
 
   const filteredBookings = sortBookingsNewestFirst(bookings.filter(b => {
     let matchesFilter = true;
@@ -272,10 +286,11 @@ export default function ManageBookings() {
         </div>
       </div>
 
-      <div className="card" style={{ overflowX: 'auto' }}>
+      <div className="card table-responsive" style={{ overflowX: 'auto' }}>
         <table className="w-full text-left" style={{ minWidth: '900px', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ borderBottom: '2px solid var(--color-border)' }}>
+              <th className="p-3">#</th>
               <th className="p-3">Booking ID</th>
               <th className="p-3">Applicant</th>
               <th className="p-3">Dates</th>
@@ -287,13 +302,14 @@ export default function ManageBookings() {
           </thead>
           <tbody>
             {isLoading ? (
-              <tr><td colSpan="7" className="text-center p-4">Loading...</td></tr>
-            ) : filteredBookings.map(booking => {
+              <tr><td colSpan="8" className="text-center p-4">Loading...</td></tr>
+            ) : filteredBookings.map((booking, index) => {
               const isRefundedOrCancelled = booking.bookingStatus === 'CANCELLED' || 
                                            booking.paymentStatus === 'REFUNDED' || 
                                            booking.approvalStatus === 'CANCELLED';
               return (
                 <tr key={booking.id} style={{ borderBottom: '1px solid var(--color-border)' }}>
+                  <td className="p-3 text-muted font-mono text-sm">{index + 1}</td>
                   <td className="p-3 font-medium text-primary">{booking.id}</td>
                   <td className="p-3 text-sm">
                     <div className="font-medium">{booking.applicantName}</div>
@@ -398,6 +414,7 @@ export default function ManageBookings() {
                   maxWidth: '720px', 
                   maxHeight: '92vh',
                   overflowY: 'auto',
+                  WebkitOverflowScrolling: 'touch',
                   borderRadius: '16px',
                   boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
                   padding: '1.25rem'
@@ -442,6 +459,10 @@ export default function ManageBookings() {
                   <div className="p-3 rounded-lg" style={{ backgroundColor: 'var(--color-background)', border: '1px solid var(--color-border)' }}>
                     <div className="text-xs uppercase font-bold text-muted mb-2 tracking-wider">Stay & Room Details</div>
                     <div className="grid grid-cols-2 gap-y-2 gap-x-2">
+                      <div className="col-span-2">
+                        <span className="text-muted block text-xs">Booking Placed At:</span>
+                        <strong className="text-text">{formatPlacedDateTime(selectedBooking.createdAt)}</strong>
+                      </div>
                       <div>
                         <span className="text-muted block text-xs">Check-in:</span>
                         <strong className="text-text">{selectedBooking.checkInDate}</strong> <span className="text-xs text-muted">({selectedBooking.checkInTime})</span>

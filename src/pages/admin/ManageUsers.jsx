@@ -17,10 +17,14 @@ export default function ManageUsers() {
     try {
       const data = await authService.getAllUsers();
       const suspendedList = JSON.parse(localStorage.getItem('ruet_suspended_users') || '[]');
-      const usersWithStatus = data.map(u => ({
-        ...u,
-        accountStatus: suspendedList.includes(u.id) ? 'SUSPENDED' : 'ACTIVE'
-      }));
+      const usersWithStatus = data.map(u => {
+        const isSuspendedInDb = u.status && String(u.status).toLowerCase() === 'suspended';
+        const isSuspendedLocal = suspendedList.includes(u.id);
+        return {
+          ...u,
+          accountStatus: (isSuspendedInDb || isSuspendedLocal) ? 'SUSPENDED' : 'ACTIVE'
+        };
+      });
       setUsers(usersWithStatus);
     } catch (err) {
       console.error(err);
@@ -29,23 +33,29 @@ export default function ManageUsers() {
     }
   };
 
-  const handleSuspend = (id) => {
+  const handleSuspend = async (id) => {
     if (window.confirm("Are you sure you want to suspend this user? They will not be able to log in.")) {
       const suspendedList = JSON.parse(localStorage.getItem('ruet_suspended_users') || '[]');
       if (!suspendedList.includes(id)) {
         suspendedList.push(id);
         localStorage.setItem('ruet_suspended_users', JSON.stringify(suspendedList));
       }
-      setUsers(users.map(u => u.id === id ? { ...u, accountStatus: 'SUSPENDED' } : u));
+      setUsers(users.map(u => u.id === id ? { ...u, accountStatus: 'SUSPENDED', status: 'suspended' } : u));
+      try {
+        await authService.updateUserStatus(id, 'suspended');
+      } catch (e) {}
       alert("User suspended successfully");
     }
   };
 
-  const handleActivate = (id) => {
+  const handleActivate = async (id) => {
     const suspendedList = JSON.parse(localStorage.getItem('ruet_suspended_users') || '[]');
     const updated = suspendedList.filter(item => item !== id);
     localStorage.setItem('ruet_suspended_users', JSON.stringify(updated));
-    setUsers(users.map(u => u.id === id ? { ...u, accountStatus: 'ACTIVE' } : u));
+    setUsers(users.map(u => u.id === id ? { ...u, accountStatus: 'ACTIVE', status: 'active' } : u));
+    try {
+      await authService.updateUserStatus(id, 'active');
+    } catch (e) {}
   };
 
   const filteredUsers = users.filter(u => {
@@ -81,7 +91,7 @@ export default function ManageUsers() {
         </div>
       </div>
 
-      <div className="card" style={{ overflowX: 'auto' }}>
+      <div className="card table-responsive" style={{ overflowX: 'auto' }}>
         <table className="w-full text-left" style={{ minWidth: '900px', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ borderBottom: '2px solid var(--color-border)' }}>

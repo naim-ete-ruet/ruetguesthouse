@@ -2,10 +2,11 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { bookingService } from '../../services/bookingService';
+import { paymentService } from '../../services/paymentService';
 import { AlertCircle, Plus, Trash2, CheckCircle, FileText, CreditCard, RefreshCw } from 'lucide-react';
 import { authService } from '../../services/authService';
 import { roomService } from '../../services/roomService';
-import { API_BASE_URL } from '../../config/api';
+import { API_BASE_URL, apiFetch } from '../../config/api';
 
 export default function BookingForm() {
   const { user } = useAuth();
@@ -240,16 +241,33 @@ export default function BookingForm() {
         ...dates,
         ...roomDetails,
         assignedRoom: selectedRoom || null,
-        approvingTeacherId: user.role === 'teacher' ? user.id : selectedTeacherId,
+        approvingTeacherId: user.role === 'teacher' ? null : selectedTeacherId,
         totalAmount
       };
 
       const newBooking = await bookingService.createBooking(bookingData);
 
+      // Record in dedicated permanent payments ledger
+      paymentService.recordPayment({
+        id: `PAY-${newBooking?.id}`,
+        bookingId: newBooking?.id,
+        userId: user.id,
+        applicantName: applicantInfo.applicantName || user.name,
+        applicantMobile: applicantInfo.mobileNumber,
+        applicantEmail: user.email,
+        applicantRole: user.role || 'student',
+        checkInDate: dates.checkInDate,
+        checkOutDate: dates.checkOutDate,
+        amount: totalAmount,
+        paymentStatus: 'PENDING',
+        paymentMethod: 'ONLINE',
+        createdAt: new Date().toISOString()
+      }).catch(e => console.warn("Payment ledger initial record note:", e));
+
       if (user.role === 'teacher') {
         // Dispatch admin approval request for teacher booking from workmail.naim@gmail.com
         try {
-          fetch(`${API_BASE_URL}/api/email/admin-approval-request`, {
+          apiFetch('/api/email/admin-approval-request', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -258,14 +276,40 @@ export default function BookingForm() {
               applicantRole: 'Teacher',
               applicantEmail: user.email,
               applicantMobile: applicantInfo.mobileNumber,
-              requestedRoomType: roomType,
+              requestedRoomType: roomDetails.requestedRoomType || roomType,
               checkInDate: dates.checkInDate,
               checkOutDate: dates.checkOutDate,
-              totalAmount: totalFare,
+              totalAmount: totalAmount,
               paymentStatus: 'PENDING'
             })
           }).catch(e => console.warn('Admin approval request dispatch error:', e));
         } catch (e) {}
+
+        // Direct SSLCommerz Checkout for Teachers
+        try {
+          const payRes = await apiFetch('/api/payment/init', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              amount: totalAmount,
+              applicant_name: applicantInfo.applicantName || user.name,
+              user_id: user.id,
+              role: user.role,
+              email: user.email,
+              mobile: applicantInfo.mobileNumber || user.mobile,
+              item_type: 'booking',
+              reference_id: newBooking?.id,
+              client_url: window.location.origin
+            })
+          });
+          const payData = await payRes.json();
+          if (payData && payData.url) {
+            window.location.href = payData.url;
+            return;
+          }
+        } catch (payErr) {
+          console.warn("Direct payment init failed, redirecting to payment page:", payErr);
+        }
 
         alert("Booking created successfully! Forwarded to Guest House Admin for review. Redirecting to payment...");
         navigate('/teacher/payment');
@@ -274,7 +318,7 @@ export default function BookingForm() {
         
         // Dispatch teacher approval request email (non-blocking with 4s timeout: never freezes UI)
         if (selectedTeacher?.email) {
-          fetch(`${API_BASE_URL}/api/email/teacher-approval`, {
+          apiFetch('/api/email/teacher-approval', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({

@@ -42,11 +42,12 @@ const PageLoader = () => (
 );
 
 function App() {
-  // Pre-warm backend server silently in the background on initial app launch to avoid cold starts
+  // Pre-warm backend servers silently in the background on initial app launch to avoid cold starts
   useEffect(() => {
     if (API_BASE_URL && API_BASE_URL.startsWith('http')) {
       fetch(`${API_BASE_URL}/ping`, { method: 'GET' }).catch(() => {});
     }
+    fetch('https://ruetguesthouse-api.onrender.com/ping', { method: 'GET' }).catch(() => {});
   }, []);
 
   return (

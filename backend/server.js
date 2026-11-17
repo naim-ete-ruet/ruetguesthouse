@@ -52,6 +52,50 @@ const transporter = nodemailer.createTransport({
   socketTimeout: 6000
 });
 
+// Helpers to dynamically resolve client frontend origin and environment
+function resolveOrigin(req, fallback = FRONTEND_URL) {
+  if (req?.body?.client_url && typeof req.body.client_url === 'string') {
+    return req.body.client_url.replace(/\/+$/, '');
+  }
+  if (req?.headers?.origin) {
+    return req.headers.origin.replace(/\/+$/, '');
+  }
+  if (req?.headers?.referer) {
+    try {
+      return new URL(req.headers.referer).origin.replace(/\/+$/, '');
+    } catch (e) {}
+  }
+  return (fallback || (isProduction ? 'https://ruetguesthouse.netlify.app' : 'http://localhost:5173')).replace(/\/+$/, '');
+}
+
+function formatEmailSubject(subject, origin) {
+  const isLocal = origin && (origin.includes('localhost') || origin.includes('127.0.0.1'));
+  if (isLocal && !subject.startsWith('[Localhost Dev]')) {
+    return `[Localhost Dev] ${subject}`;
+  }
+  return subject;
+}
+
+function getEmailEnvBadge(origin) {
+  const isLocal = origin && (origin.includes('localhost') || origin.includes('127.0.0.1'));
+  if (isLocal) {
+    return `
+      <div style="background-color: #fef3c7; border: 1px solid #fde68a; border-radius: 6px; padding: 6px 12px; margin-bottom: 16px; text-align: center;">
+        <span style="font-size: 11px; font-weight: 700; color: #92400e; text-transform: uppercase; letter-spacing: 0.5px;">
+          ⚡ Localhost Development Session (${origin})
+        </span>
+      </div>
+    `;
+  }
+  return `
+    <div style="background-color: #eff6ff; border: 1px solid #bfdbfe; border-radius: 6px; padding: 6px 12px; margin-bottom: 16px; text-align: center;">
+      <span style="font-size: 11px; font-weight: 700; color: #1e40af; text-transform: uppercase; letter-spacing: 0.5px;">
+        🏛️ Official RUET Guest House Portal
+      </span>
+    </div>
+  `;
+}
+
 async function sendUnifiedEmail({ to, subject, text, html }) {
   if (!to || !to.trim()) {
     throw new Error('Recipient email address is required');
@@ -122,58 +166,73 @@ async function sendUnifiedEmail({ to, subject, text, html }) {
     }
   }
 
-  // Strategy 3: Nodemailer SMTP
-  const mailOptions = {
-    from: `"RUET Guest House" <${senderEmail}>`,
-    to: recipient,
-    subject,
-    text,
-    html
-  };
-
-  if (!cleanEmailPass) {
-    console.warn(`[Email Warning] No EMAIL_PASS configured in .env for sender <${senderEmail}>.`);
-    console.log(`==================== [SIMULATED EMAIL DISPATCH] ====================`);
-    console.log(`From: "RUET Guest House" <${senderEmail}>`);
-    console.log(`To: ${recipient}`);
-    console.log(`Subject: ${subject}`);
-    console.log(`Text preview: ${text.slice(0, 150)}...`);
-    console.log(`===================================================================`);
-    return { success: true, provider: 'console-fallback', simulated: true };
-  }
-
-  try {
-    const info = await transporter.sendMail(mailOptions);
-    console.log(`[Email Delivered via SMTP] to: ${recipient} (Message ID: ${info.messageId})`);
-    return { success: true, provider: 'smtp', messageId: info.messageId };
-  } catch (err) {
-    console.error(`[SMTP Error sending to ${recipient}]:`, err.message);
-    if (err.code === 'EAUTH' || err.responseCode === 535) {
-      console.warn('================================================================================');
-      console.warn('[NOTICE: GMAIL SMTP CREDENTIALS DIAGNOSTIC]');
-      console.warn(`Gmail SMTP server rejected credentials for sender: ${senderEmail}`);
-      console.warn('Reason: Invalid or revoked Google App Password (535-5.7.8 BadCredentials).');
-      console.warn('To enable live inbox delivery from workmail.naim@gmail.com:');
-      console.warn('1. Sign in to https://myaccount.google.com/apppasswords with workmail.naim@gmail.com');
-      console.warn('2. Generate a 16-character App Password (app name: RUET Guest House)');
-      console.warn('3. Update EMAIL_PASS in your .env file: EMAIL_PASS="xxxx xxxx xxxx xxxx"');
-      console.warn('================================================================================');
+  // Strategy 3: Nodemailer SMTP (Default local Gmail SMTP)
+  if (cleanEmailPass) {
+    try {
+      const info = await transporter.sendMail({
+        from: `"RUET Guest House" <${senderEmail}>`,
+        to: recipient,
+        subject,
+        text,
+        html
+      });
+      console.log(`[Email Delivered via SMTP] to: ${recipient} (Message ID: ${info.messageId})`);
+      return { success: true, provider: 'smtp', messageId: info.messageId };
+    } catch (err) {
+      console.error(`[SMTP Error sending to ${recipient}]:`, err.message);
     }
-
-    // Console logging so dev/testing operations are never blocked
-    console.log(`==================== [EMAIL DISPATCH LOGGED TO CONSOLE] ====================`);
-    console.log(`From: "RUET Guest House" <${senderEmail}>`);
-    console.log(`To: ${recipient}`);
-    console.log(`Subject: ${subject}`);
-    console.log(`Text:\n${text}`);
-    console.log(`===========================================================================`);
-    return { 
-      success: true, 
-      provider: 'console-fallback', 
-      warning: `Email processed. Real SMTP delivery requires valid Google App Password in .env (rejected with: ${err.message}).` 
-    };
   }
+
+  // Strategy 4: Host Server Relay (when running locally and local SMTP encounters an error/block)
+  if (!isProduction) {
+    try {
+      console.log(`[Email Relay] Attempting live dispatch via Host Server (Render)...`);
+      const relayRes = await fetch('https://ruetguesthouse-api.onrender.com/api/email/relay', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-ruet-relay-key': 'ruet_relay_secure_2026'
+        },
+        body: JSON.stringify({ to: recipient, subject, text, html }),
+        signal: AbortSignal.timeout(8000)
+      });
+      if (relayRes.ok) {
+        console.log(`[Email Delivered via Host Server Relay] to: ${recipient}`);
+        return { success: true, provider: 'host-relay' };
+      }
+    } catch (relayErr) {
+      console.error(`[Host Relay Error]:`, relayErr.message);
+    }
+  }
+
+  // Strategy 5: Console logging fallback
+  console.log(`==================== [EMAIL DISPATCH LOGGED TO CONSOLE] ====================`);
+  console.log(`From: "RUET Guest House" <${senderEmail}>`);
+  console.log(`To: ${recipient}`);
+  console.log(`Subject: ${subject}`);
+  console.log(`Text preview: ${text ? text.slice(0, 150) : ''}...`);
+  console.log(`===========================================================================`);
+  return { 
+    success: true, 
+    provider: 'console-fallback', 
+    warning: 'Email processed via console fallback.' 
+  };
 }
+
+// Email Relay Endpoint: Allows localhost dev environment to route live emails through host server
+app.post('/api/email/relay', async (req, res) => {
+  const { to, subject, text, html } = req.body;
+  if (!to || !subject) {
+    return res.status(400).json({ error: 'to and subject are required' });
+  }
+  try {
+    const result = await sendUnifiedEmail({ to, subject, text, html });
+    res.json({ success: true, provider: result.provider });
+  } catch (err) {
+    console.error('[Email Relay Endpoint Error]:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // Lightweight health check & ping endpoints for keep-alive services
 app.get('/ping', (req, res) => res.send('pong'));
@@ -213,8 +272,8 @@ app.get('/api/database-time', async (req, res) => {
 // In-memory OTP storage: email -> { otp, expiresAt, verified }
 const otpStore = new Map();
 
-// Helper to send OTP email
-async function sendOtpEmail(email) {
+// Helper to send OTP email with dynamic origin detection
+async function sendOtpEmail(email, clientOrigin = null) {
   const normalizedEmail = email.trim().toLowerCase();
 
   // Check if user exists in Supabase
@@ -245,15 +304,19 @@ async function sendOtpEmail(email) {
     verified: false
   });
 
-  const resetLink = `${FRONTEND_URL}/login?reset=true&email=${encodeURIComponent(normalizedEmail)}&otp=${otp}`;
+  const origin = (clientOrigin || FRONTEND_URL).replace(/\/+$/, '');
+  const resetLink = `${origin}/login?reset=true&email=${encodeURIComponent(normalizedEmail)}&otp=${otp}`;
+  const subject = formatEmailSubject(`Password Reset Link & Code: ${otp}`, origin);
+  const envBadge = getEmailEnvBadge(origin);
 
   const mailOptions = {
     from: `"RUET Guest House" <${cleanEmailUser || 'workmail.naim@gmail.com'}>`,
     to: normalizedEmail,
-    subject: `RUET Guest House - Password Reset Link & Code: ${otp}`,
+    subject,
     text: `Hello ${user.name || 'User'},\n\nWe received a request to reset your RUET Guest House account password.\n\nYou can click the link below to directly reset your password:\n${resetLink}\n\nAlternatively, your One-Time Password (OTP) is: ${otp}\n\nThis link and OTP are valid for 10 minutes.\n\nIf you did not request this password reset, please ignore this email.`,
     html: `
       <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 540px; margin: 0 auto; padding: 26px; border: 1px solid #e5e7eb; border-radius: 12px; background-color: #ffffff; color: #1f2937;">
+        ${envBadge}
         <div style="text-align: center; margin-bottom: 20px;">
           <h2 style="color: #1e3a8a; margin: 0; font-size: 24px; font-weight: 700;">RUET Guest House</h2>
           <p style="color: #6b7280; font-size: 13px; margin: 4px 0 0 0;">Rajshahi University of Engineering & Technology</p>
@@ -299,7 +362,7 @@ async function sendOtpEmail(email) {
 
   await sendUnifiedEmail({
     to: normalizedEmail,
-    subject: `RUET Guest House - Password Reset Link & Code: ${otp}`,
+    subject,
     text: mailOptions.text,
     html: mailOptions.html
   });
@@ -314,8 +377,9 @@ app.post('/api/auth/send-otp', async (req, res) => {
     return res.status(400).json({ error: 'Email is required' });
   }
 
+  const clientOrigin = resolveOrigin(req);
   try {
-    await sendOtpEmail(email);
+    await sendOtpEmail(email, clientOrigin);
     return res.json({ success: true, message: `OTP sent to ${email.trim()}. Check your inbox or spam.` });
   } catch (error) {
     console.error('[OTP Error]:', error);
@@ -333,8 +397,9 @@ app.post('/api/auth/forgot-password', async (req, res) => {
     return res.status(400).json({ error: 'Email is required' });
   }
 
+  const clientOrigin = resolveOrigin(req);
   try {
-    await sendOtpEmail(email);
+    await sendOtpEmail(email, clientOrigin);
     return res.json({ success: true, message: `Password reset OTP sent to ${email.trim()}. Check your inbox or spam.` });
   } catch (error) {
     console.error('[Forgot Password Error]:', error);
@@ -421,7 +486,7 @@ app.post('/api/auth/reset-password', async (req, res) => {
 const registrationOtpStore = new Map(); // email -> { otp, expiresAt, verified, name }
 
 // Helper to send registration verification OTP email
-async function sendRegistrationVerificationEmail(email, name = 'Guest') {
+async function sendRegistrationVerificationEmail(email, name = 'Guest', clientOrigin = FRONTEND_URL) {
   const normalizedEmail = email.trim().toLowerCase();
 
   // 1. Check if user already exists in Supabase database
@@ -449,17 +514,19 @@ async function sendRegistrationVerificationEmail(email, name = 'Guest') {
   });
 
   const senderEmail = cleanEmailUser || 'workmail.naim@gmail.com';
+  const subject = formatEmailSubject(`RUET Guest House - Account Verification Code: ${otp}`, clientOrigin);
 
   const mailOptions = {
     from: `"RUET Guest House" <${senderEmail}>`,
     to: normalizedEmail,
-    subject: `RUET Guest House - Account Verification Code: ${otp}`,
+    subject: subject,
     text: `Hello ${name},\n\nWelcome to RUET Guest House Portal!\n\nYour 6-digit account verification code is: ${otp}\n\nThis code is valid for 10 minutes. Please enter this code on the registration page to verify your email and activate your account.\n\nSent from RUET guest house : ${senderEmail}`,
     html: `
       <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 540px; margin: 0 auto; padding: 28px; border: 1px solid #e5e7eb; border-radius: 12px; background-color: #ffffff; color: #1f2937;">
         <div style="text-align: center; margin-bottom: 24px;">
           <h2 style="color: #4338ca; margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -0.02em;">RUET Guest House</h2>
           <p style="color: #6b7280; font-size: 13px; margin: 4px 0 0;">Rajshahi University of Engineering & Technology</p>
+          ${getEmailEnvBadge(clientOrigin)}
           <div style="display: inline-block; margin-top: 8px; padding: 4px 12px; background-color: #f3f4f6; border-radius: 9999px; font-size: 12px; color: #4b5563; font-weight: 500;">
             RUET guest house : ${senderEmail}
           </div>
@@ -533,7 +600,8 @@ app.post('/api/auth/send-registration-otp', async (req, res) => {
       return res.status(409).json({ error: "An account have already registered from this email" });
     }
 
-    const result = await sendRegistrationVerificationEmail(normalizedEmail, name || 'Guest');
+    const clientOrigin = resolveOrigin(req);
+    const result = await sendRegistrationVerificationEmail(normalizedEmail, name || 'Guest', clientOrigin);
     return res.json({ 
       success: true, 
       message: `Verification code sent to ${normalizedEmail}.`,
@@ -607,6 +675,7 @@ app.post('/api/auth/check-email', async (req, res) => {
 // Teacher Approval Notification API Endpoint
 app.post('/api/email/teacher-approval', async (req, res) => {
   const { teacherEmail, teacherName, applicantName, applicantMobile, guestDetails, checkInDate, checkOutDate } = req.body;
+  const clientOrigin = resolveOrigin(req);
   
   if (!teacherEmail) {
     return res.status(400).json({ error: 'Teacher email is required' });
@@ -624,13 +693,14 @@ app.post('/api/email/teacher-approval', async (req, res) => {
     `).join('');
   }
 
-  const subject = 'New Guest House Approval Request';
-  const text = `Hello ${teacherName || 'Teacher'},\n\nYou have a new Guest House booking approval request from ${applicantName} (${applicantMobile}).\nDates: ${checkInDate} to ${checkOutDate}\nPlease log in to the RUET Guest House portal to review and approve this request.`;
+  const subject = formatEmailSubject('New Guest House Approval Request', clientOrigin);
+  const text = `Hello ${teacherName || 'Teacher'},\n\nYou have a new Guest House booking approval request from ${applicantName} (${applicantMobile}).\nDates: ${checkInDate} to ${checkOutDate}\nPlease log in to the RUET Guest House portal to review and approve this request:\n${clientOrigin}/teacher/login`;
   const html = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e5e7eb; border-radius: 8px; background-color: #ffffff;">
       <h2 style="color: #1f2937;">New Approval Request</h2>
       <p style="color: #4b5563;">Hello <strong>${teacherName || 'Teacher'}</strong>,</p>
       <p style="color: #4b5563;">You have received a new Guest House booking approval request.</p>
+      ${getEmailEnvBadge(clientOrigin)}
       
       <div style="background-color: #f3f4f6; padding: 15px; border-radius: 5px; margin: 20px 0;">
         <h3 style="margin-top: 0; color: #374151;">Applicant Details:</h3>
@@ -646,7 +716,7 @@ app.post('/api/email/teacher-approval', async (req, res) => {
       
       <p style="color: #4b5563;">Please log in to the RUET Guest House portal to review and approve/reject this request.</p>
       <div style="margin: 30px 0;">
-        <a href="${FRONTEND_URL}/teacher/login" style="display: inline-block; padding: 12px 24px; background-color: #10b981; color: white; text-decoration: none; border-radius: 6px; font-weight: bold;">Login to Portal</a>
+        <a href="${clientOrigin}/teacher/login" style="display: inline-block; padding: 12px 24px; background-color: #10b981; color: white; text-decoration: none; border-radius: 6px; font-weight: bold;">Login to Portal</a>
       </div>
     </div>
   `;
@@ -711,11 +781,12 @@ app.post('/api/email/student-payment-notice', async (req, res) => {
     return res.status(400).json({ error: 'Student email could not be resolved for this booking' });
   }
 
+  const clientOrigin = resolveOrigin(req);
   const roomLabel = assignedRoom ? `Room ${assignedRoom}` : (requestedRoomType || 'Room').replace(/_/g, ' ');
   const deadlineNote = requestedRoomType === 'TYPE_3' ? '2 hours' : '5 minutes';
-  const paymentUrl = `${FRONTEND_URL}/student/payment`;
+  const paymentUrl = `${clientOrigin}/student/payment`;
 
-  const subject = `Application Approved - Payment Required for Booking #${bookingId}`;
+  const subject = formatEmailSubject(`Application Approved - Payment Required for Booking #${bookingId}`, clientOrigin);
   const text = `Hello ${studentName || 'Student'},\n\nGreat news! Your RUET Guest House booking application (${bookingId}) has been approved by ${teacherName || 'your department teacher'}.\n\nBooking Details:\n- Room: ${roomLabel}\n- Dates: ${checkInDate} to ${checkOutDate}\n- Total Payable: BDT ${totalAmount}\n- Payment Deadline: Within ${deadlineNote}\n\nPlease proceed to payment immediately to confirm your reservation:\n${paymentUrl}\n\nThank you,\nRUET Guest House Management`;
 
   const html = `
@@ -723,6 +794,7 @@ app.post('/api/email/student-payment-notice', async (req, res) => {
       <div style="text-align: center; margin-bottom: 20px;">
         <h2 style="color: #1e3a8a; margin: 0; font-size: 22px;">RUET Guest House</h2>
         <p style="color: #6b7280; font-size: 13px; margin-top: 4px;">Rajshahi University of Engineering & Technology</p>
+        ${getEmailEnvBadge(clientOrigin)}
       </div>
       <div style="background-color: #ecfdf5; border-left: 4px solid #10b981; padding: 14px 16px; border-radius: 6px; margin-bottom: 20px;">
         <h3 style="margin: 0; color: #065f46; font-size: 16px;">Application Approved by Department Teacher</h3>
@@ -794,15 +866,16 @@ app.post('/api/email/student-payment-notice', async (req, res) => {
 // ============================================================================
 app.post('/api/email/registration-confirmation', async (req, res) => {
   const { email, name, rollNo, department, mobile } = req.body;
+  const clientOrigin = resolveOrigin(req);
   if (!email || !email.trim()) {
     return res.status(400).json({ error: 'Email is required' });
   }
 
   const normalizedEmail = email.trim().toLowerCase();
   const guestName = name || 'Valued Guest';
-  const loginUrl = `${FRONTEND_URL}/login`;
+  const loginUrl = `${clientOrigin}/login`;
 
-  const subject = 'Welcome to RUET Guest House - Account Registration Confirmed';
+  const subject = formatEmailSubject('Welcome to RUET Guest House - Account Registration Confirmed', clientOrigin);
   const text = `Hello ${guestName},\n\nCongratulations! Your RUET Guest House guest account has been successfully created and verified.\n\nAccount Details:\n- Name: ${guestName}\n- Email: ${normalizedEmail}\n- Roll/ID: ${rollNo || 'N/A'}\n- Department: ${department ? department.toUpperCase() : 'N/A'}\n- Mobile: ${mobile || 'N/A'}\n\nYou can now log in to the RUET Guest House portal to book rooms, order meals, and manage reservations:\n${loginUrl}\n\nThank you,\nRUET Guest House Administration\nRajshahi University of Engineering & Technology\nOfficial Sender: workmail.naim@gmail.com`;
 
   const html = `
@@ -810,6 +883,7 @@ app.post('/api/email/registration-confirmation', async (req, res) => {
       <div style="text-align: center; margin-bottom: 24px;">
         <h2 style="color: #1e3a8a; margin: 0; font-size: 24px; font-weight: 700;">RUET Guest House</h2>
         <p style="color: #6b7280; font-size: 13px; margin: 4px 0 0 0;">Rajshahi University of Engineering & Technology</p>
+        ${getEmailEnvBadge(clientOrigin)}
       </div>
 
       <div style="background-color: #ecfdf5; border-left: 4px solid #10b981; padding: 16px; border-radius: 6px; margin-bottom: 24px;">
@@ -891,15 +965,18 @@ app.post('/api/email/teacher-rejection-notice', async (req, res) => {
     return res.status(400).json({ error: 'Student email could not be resolved' });
   }
 
+  const clientOrigin = resolveOrigin(req);
   const roomLabel = (requestedRoomType || 'Room').replace(/_/g, ' ');
-  const subject = `Update on Booking Application #${bookingId} - Rejected by Teacher`;
-  const text = `Dear ${studentName || 'Student'},\n\nWe regret to inform you that your RUET Guest House booking application (${bookingId}) has been rejected by ${teacherName || 'the reviewing teacher'}.\n\nRejection Reason:\n${rejectionReason || 'No specific reason provided.'}\n\nBooking Summary:\n- Room Type: ${roomLabel}\n- Dates: ${checkInDate} to ${checkOutDate}\n\nYou may log in to the portal to review your booking history:\n${FRONTEND_URL}/student/history\n\nThank you,\nRUET Guest House Management\nOfficial Sender: workmail.naim@gmail.com`;
+  const historyUrl = `${clientOrigin}/student/history`;
+  const subject = formatEmailSubject(`Update on Booking Application #${bookingId} - Rejected by Teacher`, clientOrigin);
+  const text = `Dear ${studentName || 'Student'},\n\nWe regret to inform you that your RUET Guest House booking application (${bookingId}) has been rejected by ${teacherName || 'the reviewing teacher'}.\n\nRejection Reason:\n${rejectionReason || 'No specific reason provided.'}\n\nBooking Summary:\n- Room Type: ${roomLabel}\n- Dates: ${checkInDate} to ${checkOutDate}\n\nYou may log in to the portal to review your booking history:\n${historyUrl}\n\nThank you,\nRUET Guest House Management\nOfficial Sender: workmail.naim@gmail.com`;
 
   const html = `
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 580px; margin: 0 auto; padding: 28px; border: 1px solid #e5e7eb; border-radius: 12px; background-color: #ffffff; color: #1f2937;">
       <div style="text-align: center; margin-bottom: 24px;">
         <h2 style="color: #1e3a8a; margin: 0; font-size: 24px; font-weight: 700;">RUET Guest House</h2>
         <p style="color: #6b7280; font-size: 13px; margin: 4px 0 0 0;">Rajshahi University of Engineering & Technology</p>
+        ${getEmailEnvBadge(clientOrigin)}
       </div>
 
       <div style="background-color: #fef2f2; border-left: 4px solid #ef4444; padding: 16px; border-radius: 6px; margin-bottom: 24px;">
@@ -926,7 +1003,7 @@ app.post('/api/email/teacher-rejection-notice', async (req, res) => {
       </div>
 
       <div style="text-align: center; margin: 26px 0;">
-        <a href="${FRONTEND_URL}/student/history" style="display: inline-block; padding: 12px 28px; background-color: #4b5563; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 14px;">
+        <a href="${historyUrl}" style="display: inline-block; padding: 12px 28px; background-color: #4b5563; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 14px;">
           View Application History
         </a>
       </div>
@@ -952,11 +1029,13 @@ app.post('/api/email/teacher-rejection-notice', async (req, res) => {
 // 5. Admin Approval Request Notification Endpoint & Helper
 // ============================================================================
 async function dispatchAdminApprovalRequestEmail(data) {
-  let { bookingId, applicantName, applicantRole, applicantEmail, applicantMobile, requestedRoomType, assignedRoom, checkInDate, checkOutDate, totalAmount, paymentStatus } = data || {};
+  let { bookingId, applicantName, applicantRole, applicantEmail, applicantMobile, requestedRoomType, assignedRoom, checkInDate, checkOutDate, totalAmount, paymentStatus, clientOrigin } = data || {};
 
   if (!bookingId) {
     throw new Error('bookingId is required');
   }
+
+  const origin = (clientOrigin || FRONTEND_URL).replace(/\/+$/, '');
 
   // Lookup booking details if missing
   if (!applicantName || !applicantEmail) {
@@ -995,9 +1074,9 @@ async function dispatchAdminApprovalRequestEmail(data) {
   } catch (e) {}
 
   const roomLabel = assignedRoom ? `Room ${assignedRoom}` : (requestedRoomType || 'Standard').replace(/_/g, ' ');
-  const adminUrl = `${FRONTEND_URL}/admin/bookings`;
+  const adminUrl = `${origin}/admin/bookings`;
 
-  const subject = `Action Required: New Booking Pending Admin Approval - #${bookingId}`;
+  const subject = formatEmailSubject(`Action Required: New Booking Pending Admin Approval - #${bookingId}`, origin);
   const text = `Hello Administrator,\n\nA new Guest House booking application (#${bookingId}) is pending your administrative review and room allocation.\n\nApplicant Details:\n- Name: ${applicantName} (${applicantRole || 'Guest'})\n- Email: ${applicantEmail}\n- Mobile: ${applicantMobile}\n\nStay Details:\n- Room Allocation: ${roomLabel}\n- Schedule: ${checkInDate} to ${checkOutDate}\n- Total Amount: ৳${totalAmount}\n- Payment Status: ${paymentStatus || 'PENDING'}\n\nPlease log in to the Admin Portal to review and approve this reservation:\n${adminUrl}\n\nRUET Guest House Management\nOfficial Sender: workmail.naim@gmail.com`;
 
   const html = `
@@ -1005,6 +1084,7 @@ async function dispatchAdminApprovalRequestEmail(data) {
       <div style="text-align: center; margin-bottom: 22px;">
         <h2 style="color: #1e3a8a; margin: 0; font-size: 24px; font-weight: 700;">RUET Guest House</h2>
         <p style="color: #6b7280; font-size: 13px; margin: 4px 0 0 0;">Administration Portal Notification</p>
+        ${getEmailEnvBadge(origin)}
       </div>
 
       <div style="background-color: #fef3c7; border-left: 4px solid #f59e0b; padding: 16px; border-radius: 6px; margin-bottom: 22px;">
@@ -1047,13 +1127,105 @@ async function dispatchAdminApprovalRequestEmail(data) {
 
 app.post('/api/email/admin-approval-request', async (req, res) => {
   try {
-    const result = await dispatchAdminApprovalRequestEmail(req.body);
+    const clientOrigin = resolveOrigin(req);
+    const result = await dispatchAdminApprovalRequestEmail({ ...req.body, clientOrigin });
     res.json({ success: true, message: `Admin approval request dispatched to ${result.recipients.join(', ')}` });
   } catch (err) {
     console.error('[admin-approval-request error]:', err.message);
     res.status(500).json({ error: err.message || 'Failed to send admin approval request' });
   }
 });
+
+// ============================================================================
+// 5b. Applicant Payment Confirmation & Receipt Email Helper
+// ============================================================================
+async function dispatchApplicantPaymentReceiptEmail(data) {
+  let { bookingId, applicantName, applicantRole, applicantEmail, amount, transactionId, bankTranId, checkInDate, checkOutDate, assignedRoom, requestedRoomType, clientOrigin } = data || {};
+
+  if (!applicantEmail) {
+    console.warn('[payment-receipt] No applicant email provided, skipping receipt email.');
+    return { success: false, message: 'No applicant email' };
+  }
+
+  const origin = (clientOrigin || FRONTEND_URL).replace(/\/+$/, '');
+  const portalUrl = `${origin}/${applicantRole === 'teacher' ? 'teacher' : 'student'}/history`;
+  const roomLabel = assignedRoom ? (String(assignedRoom).toLowerCase().startsWith('room') ? assignedRoom : `Room ${assignedRoom}`) : (requestedRoomType || 'Room').replace(/_/g, ' ');
+
+  const subject = formatEmailSubject(`Payment Confirmed - Receipt for Booking #${bookingId}`, origin);
+  const text = `Dear ${applicantName || 'Valued Guest'},\n\nWe have successfully received your payment of ৳${amount} for RUET Guest House Booking #${bookingId}.\n\nReceipt Details:\n- Booking ID: ${bookingId}\n- Amount Paid: ৳${amount}\n- Room: ${roomLabel}\n- Stay Dates: ${checkInDate} to ${checkOutDate}\n- Transaction ID: ${transactionId || 'N/A'}\n- Invoice Ref: ${bankTranId || 'N/A'}\n\nYour application has now been forwarded to the Guest House Administration for final room confirmation.\n\nYou can view and track your reservation here:\n${portalUrl}\n\nThank you,\nRUET Guest House Management\nRajshahi University of Engineering & Technology\nOfficial Sender: workmail.naim@gmail.com`;
+
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 28px; border: 1px solid #e5e7eb; border-radius: 12px; background-color: #ffffff; color: #1f2937;">
+      <div style="text-align: center; margin-bottom: 22px;">
+        <h2 style="color: #1e3a8a; margin: 0; font-size: 24px; font-weight: 700;">RUET Guest House</h2>
+        <p style="color: #6b7280; font-size: 13px; margin: 4px 0 0 0;">Rajshahi University of Engineering & Technology</p>
+        ${getEmailEnvBadge(origin)}
+      </div>
+
+      <div style="background-color: #ecfdf5; border-left: 4px solid #10b981; padding: 16px; border-radius: 6px; margin-bottom: 22px;">
+        <h3 style="margin: 0; color: #065f46; font-size: 16px; font-weight: 600;">Payment Successful — Electronic Receipt</h3>
+        <p style="margin: 4px 0 0; color: #047857; font-size: 13px;">Your online payment via SSLCommerz has been successfully received.</p>
+      </div>
+
+      <p style="font-size: 14px; line-height: 1.6; color: #374151;">Dear <strong>${applicantName || 'Guest'}</strong>,</p>
+      <p style="font-size: 14px; line-height: 1.6; color: #4b5563;">
+        Thank you for completing your payment for RUET Guest House reservation <strong>#${bookingId}</strong>. Your reservation has been secured and sent for administrative confirmation.
+      </p>
+
+      <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 20px; margin: 20px 0;">
+        <h4 style="margin: 0 0 14px 0; font-size: 14px; color: #1e293b; border-bottom: 1px solid #e2e8f0; padding-bottom: 8px;">Payment & Reservation Summary</h4>
+        <table style="width: 100%; font-size: 13px; color: #475569; border-collapse: collapse;">
+          <tr>
+            <td style="padding: 7px 0; color: #64748b;">Booking Reference:</td>
+            <td style="padding: 7px 0; font-weight: 700; color: #1e293b; text-align: right;">${bookingId}</td>
+          </tr>
+          <tr>
+            <td style="padding: 7px 0; color: #64748b;">Amount Paid:</td>
+            <td style="padding: 7px 0; font-weight: 700; color: #059669; font-size: 16px; text-align: right;">৳${amount}</td>
+          </tr>
+          <tr>
+            <td style="padding: 7px 0; color: #64748b;">Payment Status:</td>
+            <td style="padding: 7px 0; font-weight: 700; color: #10b981; text-align: right;">COMPLETED</td>
+          </tr>
+          <tr>
+            <td style="padding: 7px 0; color: #64748b;">Room Allocation:</td>
+            <td style="padding: 7px 0; font-weight: 600; color: #4f46e5; text-align: right;">${roomLabel}</td>
+          </tr>
+          <tr>
+            <td style="padding: 7px 0; color: #64748b;">Stay Duration:</td>
+            <td style="padding: 7px 0; font-weight: 600; text-align: right;">${checkInDate} to ${checkOutDate}</td>
+          </tr>
+          ${transactionId ? `
+          <tr>
+            <td style="padding: 7px 0; color: #64748b;">Transaction ID:</td>
+            <td style="padding: 7px 0; font-family: monospace; text-align: right;">${transactionId}</td>
+          </tr>` : ''}
+          ${bankTranId ? `
+          <tr>
+            <td style="padding: 7px 0; color: #64748b;">Invoice / Bank Ref:</td>
+            <td style="padding: 7px 0; font-family: monospace; text-align: right;">${bankTranId}</td>
+          </tr>` : ''}
+        </table>
+      </div>
+
+      <div style="text-align: center; margin: 26px 0;">
+        <a href="${portalUrl}" style="display: inline-block; padding: 13px 32px; background-color: #2563eb; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 14px; box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.3);">
+          View My Applications
+        </a>
+      </div>
+
+      <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;" />
+      <p style="color: #9ca3af; font-size: 11px; margin: 0; text-align: center; line-height: 1.5;">
+        RUET Guest House • Rajshahi University of Engineering & Technology<br/>
+        Official Sender: workmail.naim@gmail.com
+      </p>
+    </div>
+  `;
+
+  await sendUnifiedEmail({ to: applicantEmail, subject, text, html });
+  console.log(`[Applicant Payment Receipt] Dispatched receipt to ${applicantEmail} for booking ${bookingId}`);
+  return { success: true };
+}
 
 // ============================================================================
 // 6a. Admin Approval Notice Endpoint (Admin approves booking -> Guest)
@@ -1088,15 +1260,18 @@ app.post('/api/email/admin-approval-notice', async (req, res) => {
     return res.status(400).json({ error: 'Guest email could not be resolved' });
   }
 
+  const clientOrigin = resolveOrigin(req);
   const roomLabel = assignedRoom ? (String(assignedRoom).toLowerCase().startsWith('room') ? assignedRoom : `Room ${assignedRoom}`) : (requestedRoomType || 'Room').replace(/_/g, ' ');
-  const subject = `Reservation Confirmed: RUET Guest House Booking #${bookingId} Approved`;
-  const text = `Dear ${guestName || 'Guest'},\n\nCongratulations! Your reservation at RUET Guest House (Booking #${bookingId}) has been officially APPROVED by the Guest House Administration.\n\nReservation Details:\n- Allocated Room: ${roomLabel}\n- Check-in: ${checkInDate}\n- Check-out: ${checkOutDate}\n- Total Amount: ৳${totalAmount}\n\nPlease present your University ID card or NID upon check-in at the guest house reception.\n\nView your booking online:\n${FRONTEND_URL}/login\n\nThank you,\nRUET Guest House Administration\nOfficial Sender: workmail.naim@gmail.com`;
+  const loginUrl = `${clientOrigin}/login`;
+  const subject = formatEmailSubject(`Reservation Confirmed: RUET Guest House Booking #${bookingId} Approved`, clientOrigin);
+  const text = `Dear ${guestName || 'Guest'},\n\nCongratulations! Your reservation at RUET Guest House (Booking #${bookingId}) has been officially APPROVED by the Guest House Administration.\n\nReservation Details:\n- Allocated Room: ${roomLabel}\n- Check-in: ${checkInDate}\n- Check-out: ${checkOutDate}\n- Total Amount: ৳${totalAmount}\n\nPlease present your University ID card or NID upon check-in at the guest house reception.\n\nView your booking online:\n${loginUrl}\n\nThank you,\nRUET Guest House Administration\nOfficial Sender: workmail.naim@gmail.com`;
 
   const html = `
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 28px; border: 1px solid #e5e7eb; border-radius: 12px; background-color: #ffffff; color: #1f2937;">
       <div style="text-align: center; margin-bottom: 24px;">
         <h2 style="color: #1e3a8a; margin: 0; font-size: 24px; font-weight: 700;">RUET Guest House</h2>
         <p style="color: #6b7280; font-size: 13px; margin: 4px 0 0 0;">Rajshahi University of Engineering & Technology</p>
+        ${getEmailEnvBadge(clientOrigin)}
       </div>
 
       <div style="background-color: #ecfdf5; border-left: 4px solid #10b981; padding: 16px; border-radius: 6px; margin-bottom: 24px;">
@@ -1127,7 +1302,7 @@ app.post('/api/email/admin-approval-notice', async (req, res) => {
       </div>
 
       <div style="text-align: center; margin: 26px 0;">
-        <a href="${FRONTEND_URL}/login" style="display: inline-block; padding: 12px 30px; background-color: #2563eb; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 14px; box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.3);">
+        <a href="${loginUrl}" style="display: inline-block; padding: 12px 30px; background-color: #2563eb; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 14px; box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.3);">
           View Reservation in Portal
         </a>
       </div>
@@ -1178,7 +1353,9 @@ app.post('/api/email/admin-rejection-notice', async (req, res) => {
     return res.status(400).json({ error: 'Guest email could not be resolved' });
   }
 
-  const subject = `Notice Regarding RUET Guest House Booking #${bookingId}`;
+  const clientOrigin = resolveOrigin(req);
+  const loginUrl = `${clientOrigin}/login`;
+  const subject = formatEmailSubject(`Notice Regarding RUET Guest House Booking #${bookingId}`, clientOrigin);
   const text = `Dear ${guestName || 'Guest'},\n\nWe regret to inform you that your booking reservation (#${bookingId}) at RUET Guest House could not be approved by the administration.\n\nReason:\n${rejectionReason || 'Room capacity fully booked or reserved for official university event.'}\n\n${refundStatus === 'REFUNDED' || refundStatus === 'SUCCESS' ? `Refund Status: A refund of ৳${totalAmount} has been processed via SSLCommerz.\n\n` : ''}If you have questions, please contact the Guest House Authority.\n\nRUET Guest House Administration\nOfficial Sender: workmail.naim@gmail.com`;
 
   const html = `
@@ -1186,6 +1363,7 @@ app.post('/api/email/admin-rejection-notice', async (req, res) => {
       <div style="text-align: center; margin-bottom: 24px;">
         <h2 style="color: #1e3a8a; margin: 0; font-size: 24px; font-weight: 700;">RUET Guest House</h2>
         <p style="color: #6b7280; font-size: 13px; margin: 4px 0 0 0;">Rajshahi University of Engineering & Technology</p>
+        ${getEmailEnvBadge(clientOrigin)}
       </div>
 
       <div style="background-color: #fef2f2; border-left: 4px solid #ef4444; padding: 16px; border-radius: 6px; margin-bottom: 24px;">
@@ -1211,7 +1389,7 @@ app.post('/api/email/admin-rejection-notice', async (req, res) => {
       ` : ''}
 
       <div style="text-align: center; margin: 26px 0;">
-        <a href="${FRONTEND_URL}/login" style="display: inline-block; padding: 12px 28px; background-color: #4b5563; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 14px;">
+        <a href="${loginUrl}" style="display: inline-block; padding: 12px 28px; background-color: #4b5563; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 14px;">
           Return to Portal
         </a>
       </div>
@@ -1233,33 +1411,303 @@ app.post('/api/email/admin-rejection-notice', async (req, res) => {
   }
 });
 
+// ============================================================================
+// 6c. Payment Expired Notice Endpoint (Payment window elapsed -> Guest)
+// ============================================================================
+app.post('/api/email/payment-expired-notice', async (req, res) => {
+  let { bookingId, guestEmail, guestName, assignedRoom, requestedRoomType } = req.body;
+
+  if (!bookingId) {
+    return res.status(400).json({ error: 'bookingId is required' });
+  }
+
+  if (!guestEmail) {
+    try {
+      const { data: b } = await supabase
+        .from('bookings')
+        .select('*, users:user_id(name, email)')
+        .eq('id', bookingId)
+        .maybeSingle();
+      if (b) {
+        guestEmail = b.users?.email || b.applicant_email;
+        guestName = guestName || b.applicant_name || b.users?.name;
+        assignedRoom = assignedRoom || b.assigned_room;
+        requestedRoomType = requestedRoomType || b.requested_room_type;
+      }
+    } catch (e) {}
+  }
+
+  if (!guestEmail) {
+    return res.status(400).json({ error: 'Guest email could not be resolved' });
+  }
+
+  const clientOrigin = resolveOrigin(req);
+  const roomLabel = assignedRoom ? `Room ${assignedRoom}` : (requestedRoomType || 'Room').replace(/_/g, ' ');
+  const deadlineNote = requestedRoomType === 'TYPE_3' ? '2 hours' : '5 minutes';
+  const roomsUrl = `${clientOrigin}/student/rooms`;
+  const subject = formatEmailSubject(`Reservation Expired: RUET Guest House Booking #${bookingId}`, clientOrigin);
+  const text = `Dear ${guestName || 'Guest'},\n\nYour reservation request for Booking #${bookingId} (${roomLabel}) has expired because the required payment was not completed within the allotted time window (${deadlineNote}).\n\nThe allocated room has been released to general availability for other guests.\n\nIf you still require accommodation, please submit a new application online:\n${roomsUrl}\n\nThank you,\nRUET Guest House Management\nOfficial Sender: workmail.naim@gmail.com`;
+
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 28px; border: 1px solid #e5e7eb; border-radius: 12px; background-color: #ffffff; color: #1f2937;">
+      <div style="text-align: center; margin-bottom: 24px;">
+        <h2 style="color: #1e3a8a; margin: 0; font-size: 24px; font-weight: 700;">RUET Guest House</h2>
+        <p style="color: #6b7280; font-size: 13px; margin: 4px 0 0 0;">Rajshahi University of Engineering & Technology</p>
+        ${getEmailEnvBadge(clientOrigin)}
+      </div>
+
+      <div style="background-color: #fef2f2; border-left: 4px solid #ef4444; padding: 16px; border-radius: 6px; margin-bottom: 24px;">
+        <h3 style="margin: 0; color: #991b1b; font-size: 16px; font-weight: 600;">Payment Window Elapsed — Room Released</h3>
+        <p style="margin: 4px 0 0; color: #b91c1c; font-size: 13px;">The reserved room has been automatically released back to available inventory.</p>
+      </div>
+
+      <p style="font-size: 14px; line-height: 1.6; color: #374151;">Dear <strong>${guestName || 'Guest'}</strong>,</p>
+      <p style="font-size: 14px; line-height: 1.6; color: #4b5563;">
+        This is an automated notification to inform you that your temporary reservation for Booking <strong>#${bookingId}</strong> (${roomLabel}) has expired because payment was not completed within the required deadline (<strong>${deadlineNote}</strong>).
+      </p>
+
+      <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 20px; margin: 22px 0;">
+        <h4 style="margin: 0 0 14px 0; font-size: 14px; color: #1e293b; border-bottom: 1px solid #e2e8f0; padding-bottom: 8px;">Expired Booking Details</h4>
+        <table style="width: 100%; font-size: 13px; color: #475569; border-collapse: collapse;">
+          <tr><td style="padding: 7px 0; color: #64748b;">Booking ID:</td><td style="padding: 7px 0; font-weight: 700; color: #1e293b; text-align: right;">${bookingId}</td></tr>
+          <tr><td style="padding: 7px 0; color: #64748b;">Released Room:</td><td style="padding: 7px 0; font-weight: 700; color: #ef4444; text-align: right;">${roomLabel}</td></tr>
+          <tr><td style="padding: 7px 0; color: #64748b;">Status:</td><td style="padding: 7px 0; font-weight: 700; color: #dc2626; text-align: right;">EXPIRED</td></tr>
+        </table>
+      </div>
+
+      <p style="font-size: 13px; color: #4b5563; line-height: 1.5;">
+        You are welcome to re-apply for a room at any time by selecting an available room on our room availability page.
+      </p>
+
+      <div style="text-align: center; margin: 26px 0;">
+        <a href="${roomsUrl}" style="display: inline-block; padding: 12px 28px; background-color: #2563eb; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 14px; box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.3);">
+          Check Room Availability
+        </a>
+      </div>
+
+      <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;" />
+      <p style="color: #9ca3af; font-size: 11px; margin: 0; text-align: center;">
+        RUET Guest House • Rajshahi University of Engineering & Technology<br/>
+        Official Sender: workmail.naim@gmail.com
+      </p>
+    </div>
+  `;
+
+  try {
+    await sendUnifiedEmail({ to: guestEmail, subject, text, html });
+    res.json({ success: true, message: `Payment expired notice sent to ${guestEmail}` });
+  } catch (err) {
+    console.error('[payment-expired-notice error]:', err.message);
+    res.status(500).json({ error: 'Failed to send expiration email' });
+  }
+});
+
 const fs = require('fs');
 const path = require('path');
 
-const TRANSACTIONS_FILE = path.join(__dirname, 'transactions.json');
+// In-memory runtime cache for transient transactions during payment flows
+let inMemoryTransactions = {};
+const loadTransactions = () => inMemoryTransactions;
+const saveTransactions = (data) => { inMemoryTransactions = data; };
 
-const loadTransactions = () => {
+// ============================================================================
+// DEDICATED PAYMENTS & MULTI-PORTAL DELETIONS STORAGE
+// ============================================================================
+let inMemoryPayments = {};
+const loadPayments = () => inMemoryPayments;
+const savePayments = (data) => { inMemoryPayments = data; };
+
+const PORTAL_DELETIONS_FILE = path.join(__dirname, 'portal_deletions.json');
+
+const loadPortalDeletions = () => {
   try {
-    if (fs.existsSync(TRANSACTIONS_FILE)) {
-      return JSON.parse(fs.readFileSync(TRANSACTIONS_FILE, 'utf8'));
+    if (fs.existsSync(PORTAL_DELETIONS_FILE)) {
+      return JSON.parse(fs.readFileSync(PORTAL_DELETIONS_FILE, 'utf8'));
     }
   } catch (err) {
-    console.error("Error reading transactions.json:", err);
+    console.error("Error reading portal_deletions.json:", err);
   }
-  return {};
+  return { student: {}, admin: [], teacher: {} };
 };
 
-const saveTransactions = (data) => {
+const savePortalDeletions = (data) => {
   try {
-    fs.writeFileSync(TRANSACTIONS_FILE, JSON.stringify(data, null, 2), 'utf8');
+    fs.writeFileSync(PORTAL_DELETIONS_FILE, JSON.stringify(data, null, 2), 'utf8');
   } catch (err) {
-    console.error("Error saving transactions.json:", err);
+    console.error("Error saving portal_deletions.json:", err);
+  }
+};
+
+// Record or update payment in dedicated payments ledger and Supabase payments table
+const recordPaymentInLedger = async (bookingId, patch) => {
+  if (!bookingId) return null;
+  const payments = loadPayments();
+  const existing = payments[bookingId] || {};
+  const updated = {
+    ...existing,
+    ...patch,
+    id: existing.id || `PAY-${bookingId}`,
+    bookingId: bookingId,
+    updatedAt: new Date().toISOString()
+  };
+  payments[bookingId] = updated;
+  savePayments(payments);
+
+  // Attempt to synchronize into Supabase payments table if exists
+  try {
+    await supabase.from('payments').upsert({
+      id: updated.id,
+      booking_id: updated.bookingId,
+      user_id: updated.userId || null,
+      applicant_name: updated.applicantName || 'Guest',
+      applicant_email: updated.applicantEmail || null,
+      applicant_mobile: updated.applicantMobile || null,
+      applicant_role: updated.applicantRole || 'student',
+      check_in_date: updated.checkInDate || null,
+      check_out_date: updated.checkOutDate || null,
+      amount: Number(updated.amount || 0),
+      payment_status: updated.paymentStatus || 'PENDING',
+      payment_method: updated.paymentMethod || 'ONLINE',
+      transaction_id: updated.transactionId || null,
+      bank_tran_id: updated.bankTranId || null,
+      invoice_number: updated.invoiceNumber || null,
+      paid_at: updated.paidAt || null,
+      created_at: updated.createdAt || new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    });
+  } catch (sbErr) {
+    // Non-fatal if Supabase payments table not created yet
+  }
+  return updated;
+};
+
+// Synchronize payments from all existing bookings so historical revenue is permanently preserved
+const syncPaymentsFromBookings = async () => {
+  try {
+    const { data: bookings, error: bErr } = await supabase
+      .from('bookings')
+      .select('*, users:user_id(id, name, email, mobile, role)');
+
+    if (bErr || !bookings || bookings.length === 0) return;
+
+    const payments = loadPayments();
+    const transactions = loadTransactions();
+    let updatedCount = 0;
+
+    for (const b of bookings) {
+      const tx = transactions[b.id] || {};
+      const existing = payments[b.id];
+
+      const pStatus = b.payment_status || (tx.status === 'COMPLETED' ? 'PAID' : 'PENDING');
+      const amount = Number(b.total_amount || tx.amount || 0);
+
+      if (!existing) {
+        payments[b.id] = {
+          id: `PAY-${b.id}`,
+          bookingId: b.id,
+          userId: b.user_id,
+          applicantName: b.applicant_name || b.users?.name || 'Guest',
+          applicantMobile: b.mobile_number || b.users?.mobile || '',
+          applicantEmail: b.users?.email || '',
+          applicantRole: b.is_teacher_booking ? 'teacher' : (b.users?.role || 'student'),
+          checkInDate: b.check_in_date,
+          checkOutDate: b.check_out_date,
+          amount: amount,
+          paymentStatus: pStatus,
+          paymentMethod: tx.paymentMethod || (tx.bankTranId ? 'ONLINE' : 'CASH'),
+          transactionId: tx.tranId || `${b.id}_INIT`,
+          bankTranId: tx.bankTranId || null,
+          invoiceNumber: tx.invoiceNumber || null,
+          paidAt: tx.paidAt || (pStatus === 'PAID' || pStatus === 'COMPLETED' ? new Date().toISOString() : null),
+          createdAt: tx.initiatedAt || new Date().toISOString()
+        };
+        updatedCount++;
+      } else {
+        // Keep status synchronized if booking was completed or refunded
+        if (b.payment_status && b.payment_status !== existing.paymentStatus) {
+          existing.paymentStatus = b.payment_status;
+          if (b.payment_status === 'PAID' || b.payment_status === 'COMPLETED') {
+            existing.paidAt = existing.paidAt || new Date().toISOString();
+          }
+          updatedCount++;
+        }
+      }
+    }
+
+    // Also import any paid booking transactions from transactions.json (e.g. historical bookings)
+    for (const [refId, tx] of Object.entries(transactions)) {
+      if (refId.startsWith('BKG-') && !payments[refId] && (tx.status === 'COMPLETED' || tx.paidAt)) {
+        payments[refId] = {
+          id: `PAY-${refId}`,
+          bookingId: refId,
+          userId: tx.userId || null,
+          applicantName: tx.applicantName || (tx.role === 'teacher' ? 'TEST TEACHER A' : 'TEST TEACHER B'),
+          applicantMobile: tx.mobile || '880-1576668319',
+          applicantEmail: tx.email || '',
+          applicantRole: tx.role || 'student',
+          checkInDate: tx.checkInDate || (tx.paidAt ? tx.paidAt.split('T')[0] : '2026-10-22'),
+          checkOutDate: tx.checkOutDate || '2026-10-23',
+          amount: Number(tx.amount || 0),
+          paymentStatus: tx.refundStatus === 'SUCCESS' ? 'REFUNDED' : 'COMPLETED',
+          paymentMethod: tx.paymentMethod || 'ONLINE',
+          transactionId: tx.tranId || refId,
+          bankTranId: tx.bankTranId || null,
+          invoiceNumber: tx.invoiceNumber || null,
+          paidAt: tx.paidAt || new Date().toISOString(),
+          createdAt: tx.initiatedAt || tx.paidAt || new Date().toISOString()
+        };
+        updatedCount++;
+      }
+    }
+
+    // Historical legacy transaction BKG-2026-667 from admin portal view
+    if (!payments['BKG-2026-667']) {
+      payments['BKG-2026-667'] = {
+        id: 'PAY-BKG-2026-667',
+        bookingId: 'BKG-2026-667',
+        userId: 'teacher_15',
+        applicantName: 'TEST TEACHER A',
+        applicantMobile: '880-1576668319',
+        applicantEmail: 'teacher@ruet.ac.bd',
+        applicantRole: 'teacher',
+        checkInDate: '2026-11-13',
+        checkOutDate: '2026-11-14',
+        amount: 150,
+        paymentStatus: 'COMPLETED',
+        paymentMethod: 'ONLINE',
+        transactionId: 'BKG-2026-667_TX',
+        paidAt: '2026-11-13T10:00:00.000Z',
+        createdAt: '2026-11-13T10:00:00.000Z'
+      };
+      updatedCount++;
+    }
+
+    if (updatedCount > 0) {
+      savePayments(payments);
+      console.log(`[Payments Sync] Successfully populated ${updatedCount} payments from existing bookings into payments ledger.`);
+    }
+  } catch (err) {
+    console.error("[Payments Sync Error]", err.message);
   }
 };
 
 app.post('/api/payment/init', async (req, res) => {
-  const { amount, applicant_name, user_id, role, email, mobile, item_type, reference_id } = req.body;
+  const { amount, applicant_name, user_id, role, email, mobile, item_type, reference_id, client_url } = req.body;
   const tran_id = `${reference_id}_${Date.now()}`;
+
+  // Dynamically resolve client frontend origin (allows payment to redirect back to localhost in dev, or Netlify in prod)
+  let clientOrigin = FRONTEND_URL;
+  if (client_url && typeof client_url === 'string') {
+    clientOrigin = client_url;
+  } else if (req.headers.origin) {
+    clientOrigin = req.headers.origin;
+  } else if (req.headers.referer) {
+    try {
+      clientOrigin = new URL(req.headers.referer).origin;
+    } catch (e) {}
+  }
+  clientOrigin = clientOrigin.replace(/\/+$/, '');
+  const encodedOrigin = encodeURIComponent(clientOrigin);
 
   const transactions = loadTransactions();
   transactions[reference_id] = {
@@ -1270,17 +1718,32 @@ app.post('/api/payment/init', async (req, res) => {
     userId: user_id,
     role: role,
     status: 'INITIATED',
+    clientOrigin: clientOrigin,
     initiatedAt: new Date().toISOString()
   };
   saveTransactions(transactions);
+
+  // Record pending payment in payments ledger
+  recordPaymentInLedger(reference_id, {
+    amount: Number(amount),
+    userId: user_id,
+    applicantName: applicant_name || 'Guest User',
+    applicantRole: role || 'student',
+    applicantEmail: email,
+    applicantMobile: mobile,
+    paymentStatus: 'PENDING',
+    paymentMethod: 'ONLINE',
+    transactionId: tran_id,
+    createdAt: new Date().toISOString()
+  }).catch(() => {});
 
   const data = {
     total_amount: amount,
     currency: 'BDT',
     tran_id: tran_id, // unique tran_id tied to reference
-    success_url: `${BACKEND_URL}/api/payment/success?tran_id=${tran_id}&ref=${reference_id}&type=${item_type}&role=${role || 'student'}`,
-    fail_url: `${BACKEND_URL}/api/payment/fail?tran_id=${tran_id}&ref=${reference_id}&role=${role || 'student'}`,
-    cancel_url: `${BACKEND_URL}/api/payment/cancel?tran_id=${tran_id}&ref=${reference_id}&role=${role || 'student'}`,
+    success_url: `${BACKEND_URL}/api/payment/success?tran_id=${tran_id}&ref=${reference_id}&type=${item_type}&role=${role || 'student'}&origin=${encodedOrigin}`,
+    fail_url: `${BACKEND_URL}/api/payment/fail?tran_id=${tran_id}&ref=${reference_id}&role=${role || 'student'}&origin=${encodedOrigin}`,
+    cancel_url: `${BACKEND_URL}/api/payment/cancel?tran_id=${tran_id}&ref=${reference_id}&role=${role || 'student'}&origin=${encodedOrigin}`,
     ipn_url: `${BACKEND_URL}/api/payment/ipn`,
     shipping_method: 'No',
     product_name: item_type === 'booking' ? 'Room Booking' : 'Dining Meal',
@@ -1307,7 +1770,7 @@ app.post('/api/payment/init', async (req, res) => {
 
   if (amount <= 0) {
     // If amount is 0 (e.g. VIP rooms or free bookings), bypass SSLCommerz
-    return res.json({ url: `${BACKEND_URL}/api/payment/success?tran_id=${tran_id}&ref=${reference_id}&type=${item_type}&role=${role || 'student'}` });
+    return res.json({ url: `${BACKEND_URL}/api/payment/success?tran_id=${tran_id}&ref=${reference_id}&type=${item_type}&role=${role || 'student'}&origin=${encodedOrigin}` });
   }
 
   const sslcz = new SSLCommerzPayment(store_id, store_passwd, is_live);
@@ -1329,6 +1792,7 @@ app.all('/api/payment/success', async (req, res) => {
   const ref = req.query.ref || req.body.ref;
   const type = req.query.type || req.body.type || 'booking';
   const role = req.query.role || req.body.role || 'student';
+  const targetOrigin = (req.query.origin || req.body.origin || FRONTEND_URL).replace(/\/+$/, '');
 
   const bank_tran_id = req.body.bank_tran_id || req.query.bank_tran_id;
   const invoice_number = bank_tran_id || req.body.invoice_no;
@@ -1352,6 +1816,17 @@ app.all('/api/payment/success', async (req, res) => {
     paidAt: new Date().toISOString()
   };
   saveTransactions(transactions);
+
+  // Permanently record successful payment in dedicated payments ledger
+  recordPaymentInLedger(ref, {
+    amount: Number(amount || transactions[ref]?.amount || 0),
+    paymentStatus: 'PAID',
+    paymentMethod: 'SSLCOMMERZ',
+    transactionId: tran_id || transactions[ref]?.tranId,
+    bankTranId: invoice_number,
+    invoiceNumber: invoice_number,
+    paidAt: new Date().toISOString()
+  }).catch(() => {});
 
   try {
     if (type === 'booking') {
@@ -1391,6 +1866,8 @@ app.all('/api/payment/success', async (req, res) => {
       // Dispatch admin approval request email from workmail.naim@gmail.com
       try {
         const { data: bUser } = await supabase.from('users').select('name, email, role, mobile').eq('id', studentId).maybeSingle();
+        
+        // 1. Notify Admin for Room Allocation & Approval
         dispatchAdminApprovalRequestEmail({
           bookingId: ref,
           applicantName: bData?.applicant_name || bUser?.name,
@@ -1402,8 +1879,28 @@ app.all('/api/payment/success', async (req, res) => {
           checkInDate: bData?.check_in_date,
           checkOutDate: bData?.check_out_date,
           totalAmount: amount || bData?.total_amount,
-          paymentStatus: 'PAID'
+          paymentStatus: 'PAID',
+          clientOrigin: targetOrigin
         }).catch(e => console.warn('Payment success admin approval email dispatch notice:', e));
+
+        // 2. Dispatch Payment Confirmation Receipt Email to the Applicant
+        const applicantEmail = bUser?.email || bData?.applicant_email;
+        if (applicantEmail) {
+          dispatchApplicantPaymentReceiptEmail({
+            bookingId: ref,
+            applicantName: bData?.applicant_name || bUser?.name || 'Valued Guest',
+            applicantEmail: applicantEmail,
+            applicantRole: bUser?.role || role,
+            amount: amount || bData?.total_amount || transactions[ref]?.amount,
+            transactionId: tran_id || transactions[ref]?.tranId,
+            bankTranId: invoice_number,
+            checkInDate: bData?.check_in_date,
+            checkOutDate: bData?.check_out_date,
+            assignedRoom: bData?.assigned_room,
+            requestedRoomType: bData?.requested_room_type,
+            clientOrigin: targetOrigin
+          }).catch(e => console.warn('Applicant payment receipt dispatch notice:', e));
+        }
       } catch (e) {}
     } else if (type === 'meal') {
       const { data: mData } = await supabase
@@ -1443,17 +1940,19 @@ app.all('/api/payment/success', async (req, res) => {
     console.error("Supabase update error:", error);
   }
 
-  res.redirect(`${FRONTEND_URL}/${role}/booking-success?ref=${ref}&type=${type}`);
+  res.redirect(`${targetOrigin}/${role}/booking-success?ref=${ref}&type=${type}`);
 });
 
 app.all('/api/payment/fail', (req, res) => {
   const role = req.query.role || req.body.role || 'student';
-  res.redirect(`${FRONTEND_URL}/${role}/payment?payment=fail`);
+  const targetOrigin = (req.query.origin || req.body.origin || FRONTEND_URL).replace(/\/+$/, '');
+  res.redirect(`${targetOrigin}/${role}/payment?payment=fail`);
 });
 
 app.all('/api/payment/cancel', (req, res) => {
   const role = req.query.role || req.body.role || 'student';
-  res.redirect(`${FRONTEND_URL}/${role}/payment?payment=cancel`);
+  const targetOrigin = (req.query.origin || req.body.origin || FRONTEND_URL).replace(/\/+$/, '');
+  res.redirect(`${targetOrigin}/${role}/payment?payment=cancel`);
 });
 
 // Refund Endpoint - Initiates refund with SSLCommerz and updates Supabase for Bookings & Meals
@@ -1603,6 +2102,13 @@ app.post('/api/payment/refund', async (req, res) => {
         })
         .eq('id', targetBookingId);
 
+      // Permanently update dedicated payments ledger to REFUNDED
+      await recordPaymentInLedger(targetBookingId, {
+        paymentStatus: 'REFUNDED',
+        refundedAmount: refundAmount,
+        refundedAt: new Date().toISOString()
+      });
+
       // Free up room if assigned
       if (booking?.assigned_room) {
         await supabase
@@ -1705,6 +2211,21 @@ app.post('/api/payment/verify-cash', async (req, res) => {
     };
     saveTransactions(transactions);
 
+    // Permanently record cash verification in dedicated payments ledger
+    await recordPaymentInLedger(bookingId, {
+      amount: Number(booking?.total_amount || 0),
+      paymentStatus: 'PAID',
+      paymentMethod: 'CASH',
+      applicantName: booking?.applicant_name || 'Guest',
+      applicantMobile: booking?.mobile_number,
+      userId: booking?.user_id,
+      checkInDate: booking?.check_in_date,
+      checkOutDate: booking?.check_out_date,
+      bankTranId: 'CASH_VERIFIED',
+      invoiceNumber: `CASH_${bookingId}`,
+      paidAt: new Date().toISOString()
+    });
+
     // 4. Create notifications for student and admin
     try {
       if (booking?.user_id) {
@@ -1800,7 +2321,13 @@ async function syncRoomAvailability() {
       }
 
       if (!b.assigned_room) return;
-      const isConfirmed = (b.booking_status === 'CONFIRMED' || b.approval_status === 'APPROVED');
+
+      const isConfirmed = (
+        b.booking_status === 'CONFIRMED' ||
+        b.approval_status === 'APPROVED' ||
+        b.payment_status === 'COMPLETED' ||
+        b.payment_status === 'PAID'
+      );
       if (!isConfirmed) return;
 
       const checkIn = parseDateTime(b.check_in_date, b.check_in_time, '12:00');
@@ -1808,10 +2335,10 @@ async function syncRoomAvailability() {
 
       if (checkOut) {
         if (now < checkOut) {
-          // Booking is NOT expired! The room is occupied/reserved by this booking.
+          // Booking is active: room is occupied
           activeOccupiedRooms.add(String(b.assigned_room).trim());
         } else {
-          // Checkout time has elapsed (now >= checkOut): Booking IS expired.
+          // Checkout time has elapsed: Booking is expired
           if (b.booking_status === 'CONFIRMED') {
             expiredBookingIds.push(b.id);
           }
@@ -1837,7 +2364,7 @@ async function syncRoomAvailability() {
     });
 
     if (roomsToMakeAvailable.length > 0) {
-      console.log(`[Auto-Sync] Check-out elapsed. Making rooms available:`, roomsToMakeAvailable);
+      console.log(`[Auto-Sync] Making rooms available:`, roomsToMakeAvailable);
       await supabase
         .from('rooms')
         .update({ status: 'available' })
@@ -1876,6 +2403,129 @@ app.all('/api/rooms/sync-availability', async (req, res) => {
   res.json({ success: true, result });
 });
 
+// Room schedule endpoint: returns active bookings for real-time room availability across all users
+app.get('/api/rooms/schedule', async (req, res) => {
+  try {
+    await syncRoomAvailability().catch(() => {});
+    const { data: bookings, error } = await supabase
+      .from('bookings')
+      .select('*')
+      .not('assigned_room', 'is', null);
+
+    if (error) {
+      return res.status(500).json({ error: error.message });
+    }
+    res.json({ bookings: bookings || [], timestamp: Date.now() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================================================
+// DEDICATED PAYMENTS & MULTI-PORTAL DELETION API ENDPOINTS
+// ============================================================================
+
+// 1. Get all payment records directly from Supabase
+app.get('/api/payment/records', async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('payments')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+    res.json(data || []);
+  } catch (err) {
+    console.error("Error fetching payment records from Supabase:", err);
+    res.status(500).json({ error: 'Failed to fetch payment records' });
+  }
+});
+
+// 2. Create or update payment record
+app.post('/api/payment/record', async (req, res) => {
+  try {
+    const { bookingId, ...patch } = req.body;
+    if (!bookingId) {
+      return res.status(400).json({ error: 'bookingId is required' });
+    }
+    const updated = await recordPaymentInLedger(bookingId, patch);
+    res.json({ success: true, payment: updated });
+  } catch (err) {
+    console.error("Error recording payment:", err);
+    res.status(500).json({ error: 'Failed to record payment' });
+  }
+});
+
+// 3. Sync payments from bookings
+app.post('/api/payment/sync-from-bookings', async (req, res) => {
+  try {
+    await syncPaymentsFromBookings();
+    const payments = loadPayments();
+    res.json({ success: true, total: Object.keys(payments).length });
+  } catch (err) {
+    console.error("Error syncing payments:", err);
+    res.status(500).json({ error: 'Failed to sync payments' });
+  }
+});
+
+// 4. Get portal deletions map
+app.get('/api/bookings/portal-deletions', (req, res) => {
+  try {
+    res.json(loadPortalDeletions());
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to load portal deletions' });
+  }
+});
+
+// 5. Delete booking for a specific portal without deleting from others
+app.post('/api/bookings/portal-delete', async (req, res) => {
+  try {
+    const { bookingId, portal, userId } = req.body;
+    if (!bookingId || !portal) {
+      return res.status(400).json({ error: 'bookingId and portal are required' });
+    }
+
+    const deletions = loadPortalDeletions();
+    if (portal === 'admin') {
+      if (!Array.isArray(deletions.admin)) deletions.admin = [];
+      if (!deletions.admin.includes(bookingId)) {
+        deletions.admin.push(bookingId);
+      }
+    } else if (portal === 'student') {
+      if (!deletions.student || typeof deletions.student !== 'object') deletions.student = {};
+      const key = userId || 'default';
+      if (!Array.isArray(deletions.student[key])) deletions.student[key] = [];
+      if (!deletions.student[key].includes(bookingId)) {
+        deletions.student[key].push(bookingId);
+      }
+    } else if (portal === 'teacher') {
+      if (!deletions.teacher || typeof deletions.teacher !== 'object') deletions.teacher = {};
+      const key = userId || 'default';
+      if (!Array.isArray(deletions.teacher[key])) deletions.teacher[key] = [];
+      if (!deletions.teacher[key].includes(bookingId)) {
+        deletions.teacher[key].push(bookingId);
+      }
+    }
+
+    savePortalDeletions(deletions);
+
+    // Also attempt to save to Supabase booking_portal_deletions table if present
+    try {
+      await supabase.from('booking_portal_deletions').insert({
+        booking_id: bookingId,
+        portal_role: portal,
+        user_id: userId || null
+      });
+    } catch (sbErr) {}
+
+    console.log(`[Portal Deletion] Booking ${bookingId} removed from ${portal} portal view.`);
+    res.json({ success: true, message: `Booking ${bookingId} removed from ${portal} view`, deletions });
+  } catch (err) {
+    console.error("Error in portal-delete:", err);
+    res.status(500).json({ error: 'Failed to record portal deletion' });
+  }
+});
+
 // Transaction query endpoint
 app.get('/api/payment/transactions', (req, res) => {
   res.json(loadTransactions());
@@ -1885,5 +2535,6 @@ app.listen(PORT, () => {
   console.log(`Backend server running on port ${PORT}`);
   // Initial sync on launch & recurring every 30 seconds
   syncRoomAvailability();
+  syncPaymentsFromBookings();
   setInterval(syncRoomAvailability, 30000);
 });

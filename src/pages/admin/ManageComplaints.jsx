@@ -105,7 +105,7 @@ export default function ManageComplaints() {
         </div>
       </div>
 
-      <div className="card" style={{ overflowX: 'auto' }}>
+      <div className="card table-responsive" style={{ overflowX: 'auto' }}>
         <table className="w-full text-left" style={{ minWidth: '900px', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ borderBottom: '2px solid var(--color-border)' }}>

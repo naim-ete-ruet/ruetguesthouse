@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { bookingService } from '../../services/bookingService';
 import { roomService } from '../../services/roomService';
+import { paymentService } from '../../services/paymentService';
 import { supabase } from '../../config/supabaseClient';
 import { Users, Calendar, DoorOpen, CreditCard, Clock } from 'lucide-react';
 import { Link } from 'react-router-dom';
@@ -21,6 +22,7 @@ export default function AdminDashboard() {
       try {
         const rooms = await roomService.getAllRooms();
         const bookings = await bookingService.getAllBookings();
+        const payments = await paymentService.getAllPayments();
 
         setStats({
           totalRooms: rooms.length,
@@ -28,7 +30,7 @@ export default function AdminDashboard() {
           occupiedRooms: rooms.filter(r => r.status === 'occupied').length,
           pendingRequests: bookings.filter(b => b.approvalStatus === 'PENDING_ADMIN_APPROVAL' && b.bookingStatus !== 'CANCELLED').length,
           approvedBookings: bookings.filter(b => b.approvalStatus === 'APPROVED' && b.bookingStatus !== 'CANCELLED').length,
-          pendingPayments: bookings.filter(b => b.paymentStatus === 'PENDING' && b.bookingStatus !== 'CANCELLED' && b.approvalStatus !== 'CANCELLED' && b.approvalStatus !== 'REJECTED').length
+          pendingPayments: payments.filter(p => p.paymentStatus === 'PENDING').length
         });
       } catch (err) {
         console.error(err);
