@@ -15,8 +15,8 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Supabase setup
-const supabaseUrl = process.env.VITE_SUPABASE_URL;
-const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY;
+const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || 'https://bvgkhsivcjgbaqcfbngv.supabase.co';
+const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ2Z2toc2l2Y2pnYmFxY2Zibmd2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTEzOTQ0ODUsImV4cCI6MjEwNjk3MDQ4NX0.98i1a_l4La_Ycy5xqQFJYw4izPKoGNeCkK3XtmHYrxE';
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 // SSLCommerz configuration
@@ -1773,18 +1773,300 @@ app.post('/api/payment/init', async (req, res) => {
     return res.json({ url: `${BACKEND_URL}/api/payment/success?tran_id=${tran_id}&ref=${reference_id}&type=${item_type}&role=${role || 'student'}&origin=${encodedOrigin}` });
   }
 
+  const fallbackToSandboxCheckout = () => {
+    const sandboxUrl = `${BACKEND_URL}/api/payment/sandbox-checkout?tran_id=${encodeURIComponent(tran_id)}&ref=${encodeURIComponent(reference_id)}&type=${encodeURIComponent(item_type)}&role=${encodeURIComponent(role || 'student')}&amount=${encodeURIComponent(amount)}&applicant_name=${encodeURIComponent(applicant_name || 'Guest User')}&origin=${encodedOrigin}`;
+    console.log(`[Payment Gateway] SSLCommerz Sandbox API unreachable or timed out. Redirecting to Sandbox Gateway: ${sandboxUrl}`);
+    return res.json({ url: sandboxUrl, fallback: true });
+  };
+
   const sslcz = new SSLCommerzPayment(store_id, store_passwd, is_live);
-  sslcz.init(data).then(apiResponse => {
-    // Redirect the user to payment gateway
-    if (apiResponse?.GatewayPageURL) {
-      res.json({ url: apiResponse.GatewayPageURL });
-    } else {
-      res.status(400).json({ error: 'Failed to initialize payment gateway' });
+  const sslPromise = sslcz.init(data);
+  const timeoutPromise = new Promise((_, reject) => 
+    setTimeout(() => reject(new Error('SSLCommerz gateway timed out after 3500ms')), 3500)
+  );
+
+  Promise.race([sslPromise, timeoutPromise])
+    .then(apiResponse => {
+      if (apiResponse?.GatewayPageURL) {
+        console.log(`[Payment Init] GatewayPageURL received: ${apiResponse.GatewayPageURL}`);
+        return res.json({ url: apiResponse.GatewayPageURL });
+      }
+      throw new Error(apiResponse?.message || 'GatewayPageURL missing from SSLCommerz response');
+    })
+    .catch(err => {
+      console.warn(`[SSLCommerz Init Notice] ${err.message}`);
+      if (!is_live) {
+        return fallbackToSandboxCheckout();
+      }
+      res.status(400).json({ error: 'Failed to initialize payment gateway: ' + err.message });
+    });
+});
+
+// ============================================================================
+// RESILIENT SANDBOX CHECKOUT GATEWAY (Interactive Test Mode)
+// ============================================================================
+app.get('/api/payment/sandbox-checkout', async (req, res) => {
+  const tran_id = req.query.tran_id;
+  const ref = req.query.ref;
+  const type = req.query.type || 'booking';
+  const role = req.query.role || 'student';
+  const amount = req.query.amount || '0';
+  const applicant_name = req.query.applicant_name || 'Guest User';
+  const targetOrigin = (req.query.origin || FRONTEND_URL).replace(/\/+$/, '');
+  const encodedOrigin = encodeURIComponent(targetOrigin);
+
+  // Generate simulated bank transaction ID matching official SSLCommerz format (e.g. 261117201455gyBwJTJVjKv6XtG)
+  const now = new Date();
+  const dateStr = now.toISOString().slice(2, 10).replace(/-/g, '');
+  const timeStr = now.toTimeString().slice(0, 8).replace(/:/g, '');
+  const randSuffix = Math.random().toString(36).substring(2, 10);
+  const simulatedBankTranId = `${dateStr}${timeStr}${randSuffix}`;
+  const simulatedValId = `VAL_${Date.now()}`;
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RUET Guest House - Secure Payment Checkout</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Poppins:wght@600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --color-primary: #4f46e5;
+      --color-primary-hover: #4338ca;
+      --color-background: #f3f4f6;
+      --color-surface: #ffffff;
+      --color-text: #111827;
+      --color-muted: #6b7280;
+      --color-border: #e5e7eb;
+      --color-success: #10b981;
     }
-  }).catch(err => {
-    console.error("SSLCommerz Init Error:", err);
-    res.status(500).json({ error: 'Internal Server Error' });
-  });
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background-color: var(--color-background);
+      color: var(--color-text);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 1rem;
+    }
+    .checkout-card {
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: 16px;
+      max-width: 480px;
+      width: 100%;
+      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.08), 0 8px 10px -6px rgba(0, 0, 0, 0.04);
+      overflow: hidden;
+    }
+    .header {
+      background: #ffffff;
+      padding: 1.5rem;
+      border-bottom: 1px solid var(--color-border);
+      text-align: center;
+    }
+    .header h1 {
+      font-family: 'Poppins', sans-serif;
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: #1e3a8a;
+      margin-bottom: 0.25rem;
+    }
+    .header p {
+      font-size: 0.825rem;
+      color: var(--color-muted);
+    }
+    .badge {
+      display: inline-block;
+      padding: 0.25rem 0.6rem;
+      border-radius: 9999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      background: #fef3c7;
+      color: #b45309;
+      margin-top: 0.5rem;
+    }
+    .content {
+      padding: 1.5rem;
+    }
+    .order-summary {
+      background: #f9fafb;
+      border: 1px solid var(--color-border);
+      border-radius: 12px;
+      padding: 1rem;
+      margin-bottom: 1.25rem;
+    }
+    .summary-row {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 0.5rem;
+      font-size: 0.875rem;
+    }
+    .summary-row:last-child {
+      margin-bottom: 0;
+      padding-top: 0.5rem;
+      border-top: 1px dashed var(--color-border);
+      font-weight: 700;
+      font-size: 1rem;
+    }
+    .summary-label { color: var(--color-muted); }
+    .amount-val { color: #059669; font-size: 1.15rem; font-weight: 700; }
+    .method-title {
+      font-size: 0.875rem;
+      font-weight: 600;
+      margin-bottom: 0.75rem;
+      color: var(--color-text);
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+    .method-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.6rem;
+      margin-bottom: 1.5rem;
+    }
+    .method-option {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.8rem 1rem;
+      border: 1px solid var(--color-border);
+      border-radius: 12px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      background: #ffffff;
+    }
+    .method-option:hover {
+      border-color: var(--color-primary);
+      background: #f5f3ff;
+    }
+    .method-option input[type="radio"] {
+      accent-color: var(--color-primary);
+      width: 1.1rem;
+      height: 1.1rem;
+    }
+    .method-info { flex: 1; }
+    .method-name { font-size: 0.9rem; font-weight: 600; }
+    .method-tag { font-size: 0.75rem; color: var(--color-muted); }
+    .btn-pay {
+      width: 100%;
+      background: var(--color-primary);
+      color: #ffffff;
+      border: none;
+      padding: 0.9rem;
+      border-radius: 12px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+      box-shadow: 0 4px 6px -1px rgba(79, 70, 229, 0.25);
+    }
+    .btn-pay:hover {
+      background: var(--color-primary-hover);
+    }
+    .btn-cancel {
+      display: block;
+      width: 100%;
+      text-align: center;
+      margin-top: 0.75rem;
+      padding: 0.6rem;
+      color: var(--color-muted);
+      text-decoration: none;
+      font-size: 0.85rem;
+      border-radius: 8px;
+    }
+    .btn-cancel:hover { color: #dc2626; }
+    .footer-note {
+      margin-top: 1rem;
+      text-align: center;
+      font-size: 0.75rem;
+      color: var(--color-muted);
+      line-height: 1.4;
+    }
+  </style>
+</head>
+<body>
+  <div class="checkout-card">
+    <div class="header">
+      <h1>RUET Guest House</h1>
+      <p>Secure Payment Gateway</p>
+      <span class="badge">Sandbox Test Gateway</span>
+    </div>
+
+    <div class="content">
+      <div class="order-summary">
+        <div class="summary-row">
+          <span class="summary-label">Reference ID</span>
+          <strong>${ref}</strong>
+        </div>
+        <div class="summary-row">
+          <span class="summary-label">Purpose</span>
+          <span>${type === 'meal' ? 'Dining Meal' : 'Room Booking'}</span>
+        </div>
+        <div class="summary-row">
+          <span class="summary-label">Applicant</span>
+          <span>${applicant_name}</span>
+        </div>
+        <div class="summary-row">
+          <span class="summary-label">Total Payable</span>
+          <span class="amount-val">৳${amount}</span>
+        </div>
+      </div>
+
+      <form action="${BACKEND_URL}/api/payment/success" method="POST">
+        <input type="hidden" name="tran_id" value="${tran_id}">
+        <input type="hidden" name="ref" value="${ref}">
+        <input type="hidden" name="type" value="${type}">
+        <input type="hidden" name="role" value="${role}">
+        <input type="hidden" name="amount" value="${amount}">
+        <input type="hidden" name="origin" value="${targetOrigin}">
+        <input type="hidden" name="bank_tran_id" value="${simulatedBankTranId}">
+        <input type="hidden" name="invoice_no" value="${simulatedBankTranId}">
+        <input type="hidden" name="val_id" value="${simulatedValId}">
+
+        <div class="method-title">Select Payment Channel</div>
+        <div class="method-group">
+          <label class="method-option">
+            <input type="radio" name="card_type" value="BKASH-BKash" checked>
+            <div class="method-info">
+              <div class="method-name" style="color: #e2136e;">bKash</div>
+              <div class="method-tag">Mobile Financial Services</div>
+            </div>
+          </label>
+          <label class="method-option">
+            <input type="radio" name="card_type" value="NAGAD-Nagad">
+            <div class="method-info">
+              <div class="method-name" style="color: #f7941d;">Nagad</div>
+              <div class="method-tag">Mobile Financial Services</div>
+            </div>
+          </label>
+          <label class="method-option">
+            <input type="radio" name="card_type" value="VISA-Dutch Bangla Bank">
+            <div class="method-info">
+              <div class="method-name" style="color: #1a1f71;">Card / Internet Banking</div>
+              <div class="method-tag">DBBL, Visa, Mastercard, Q-Cash</div>
+            </div>
+          </label>
+        </div>
+
+        <button type="submit" class="btn-pay">Pay ৳${amount} & Confirm</button>
+        <a href="${targetOrigin}/${role}/payment?payment=cancel" class="btn-cancel">Cancel and Return</a>
+      </form>
+
+      <p class="footer-note">
+        This test checkout simulates the SSLCommerz gateway in development and staging environments.
+        Your payment will instantly synchronize to the database.
+      </p>
+    </div>
+  </div>
+</body>
+</html>`;
+
+  res.send(html);
 });
 
 app.all('/api/payment/success', async (req, res) => {

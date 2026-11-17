@@ -300,7 +300,7 @@ export default function ManagePayments() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3 text-xs sm:text-sm">
               {/* Card 1: Applicant Details */}
               <div className="p-3 rounded-lg" style={{ backgroundColor: 'var(--color-background)', border: '1px solid var(--color-border)' }}>
-                <div className="text-xs uppercase font-bold text-muted mb-2 tracking-wider">Applicant Information</div>
+                <div className="text-xs uppercase font-bold text-muted mb-2 tracking-wider">Applicant Details</div>
                 <div className="grid grid-cols-2 gap-y-2 gap-x-2">
                   <div className="col-span-2"><span className="text-muted block text-xs">Name:</span> <strong className="text-text">{selectedPayment.applicantName || 'Guest'}</strong></div>
                   <div><span className="text-muted block text-xs">Mobile:</span> <strong className="text-text">{selectedPayment.applicantMobile || selectedPayment.mobileNumber || 'N/A'}</strong></div>

@@ -64,7 +64,7 @@ export default function TeacherManageApplications() {
           approvalStatus: 'PENDING_PAYMENT' 
         });
         
-        // Find approved booking to extract student details
+        // Find approved booking to extract applicant details
         const targetApp = applications.find(app => app.id === id);
 
         // Local state update
@@ -216,7 +216,7 @@ export default function TeacherManageApplications() {
           <Search className="text-muted flex-shrink-0" size={20} />
           <input 
             type="text" 
-            placeholder="Search by ID, Student, or Date..." 
+            placeholder="Search by ID, Applicant, or Date..." 
             className="form-input w-full" 
             value={searchTerm}
             onChange={e => setSearchTerm(e.target.value)}
@@ -239,7 +239,7 @@ export default function TeacherManageApplications() {
             <tr style={{ borderBottom: '2px solid var(--color-border)' }}>
               <th className="p-3">#</th>
               <th className="p-3">App ID</th>
-              <th className="p-3">Student</th>
+              <th className="p-3">Applicant</th>
               <th className="p-3">Room No.</th>
               <th className="p-3">Dates</th>
               <th className="p-3">Status</th>
@@ -357,9 +357,9 @@ export default function TeacherManageApplications() {
             
             {/* 2 Balanced Side-by-Side Cards (Stack on mobile) */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3 text-xs sm:text-sm">
-              {/* Card 1: Student Details */}
+              {/* Card 1: Applicant Details */}
               <div className="p-3 rounded-lg" style={{ backgroundColor: 'var(--color-background)', border: '1px solid var(--color-border)' }}>
-                <div className="text-xs uppercase font-bold text-muted mb-2 tracking-wider">Student Details</div>
+                <div className="text-xs uppercase font-bold text-muted mb-2 tracking-wider">Applicant Details</div>
                 <div className="grid grid-cols-2 gap-y-2 gap-x-2">
                   <div><span className="text-muted block text-xs">Name:</span> <strong className="text-text">{selectedApp.applicantName}</strong></div>
                   <div><span className="text-muted block text-xs">Mobile / Roll:</span> <strong className="text-text">{selectedApp.mobileNumber}</strong></div>
